@@ -411,6 +411,20 @@ async def run_client():
 
             asyncio.create_task(channel_activity_tracker(client, suraj_entity))
 
+            try:
+                await client.send_message(
+                    suraj_entity,
+                    "👑 **Pranam Suraj sir!**\n\n"
+                    "Main aapka Dedicated AI YouTube Account Manager ab 24/7 Cloud Server par fully online hoon! 🚀\n\n"
+                    "• YouTube Channel: **GTA6-INDIA** (Full Upload, Delete, Clipping, Community Post Access)\n"
+                    "• Google Drive & Calendar: Connected\n"
+                    "• 24/7 Cloud Mode: Non-Stop Active (PC band hone par bhi chalega!)\n\n"
+                    "Bataiye Suraj sir, channel ke liye kya aadesh hai? 🔥"
+                )
+                print(f"[Userbot] Sent greeting message to Suraj sir ({CREATOR_USERNAME})!")
+            except Exception as greet_err:
+                print(f"[Userbot Greet Notice] {greet_err}")
+
             @client.on(events.NewMessage)
             async def handler(event):
                 if event.out:

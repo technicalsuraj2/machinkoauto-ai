@@ -14,16 +14,23 @@ from dotenv import load_dotenv
 env_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
 load_dotenv(env_path)
 
-API_ID = int(os.getenv("TELEGRAM_API_ID", "38595785"))
-API_HASH = os.getenv("TELEGRAM_API_HASH", "061fb3e46d0d9a3076eada93d91c4d81")
-CREATOR_USERNAME = os.getenv("TELEGRAM_CREATOR_USERNAME", "Surajpatel223").replace("@", "")
-CREATOR_PHONE = os.getenv("TELEGRAM_CREATOR_PHONE", "7990369253")
-CREATOR_ID = int(os.getenv("TELEGRAM_CREATOR_ID", "9052978168"))
-TELEGRAM_STRING_SESSION = os.getenv("TELEGRAM_STRING_SESSION", "").strip()
+raw_api_id = os.getenv("TELEGRAM_API_ID")
+API_ID = int(raw_api_id.strip()) if raw_api_id and raw_api_id.strip() else 38595785
 
-LLM_API_KEY = os.getenv("LLM_API_KEY", "sk-wQlPOIKM11wjcZXtpwDNUIJfzoV105B7hXuxR19NGzj67B0F")
-LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.bluesminds.com/v1")
-LLM_MODEL = os.getenv("LLM_MODEL", "nvidia/nemotron-3.5-lightning-30b-a3b")
+raw_api_hash = os.getenv("TELEGRAM_API_HASH")
+API_HASH = raw_api_hash.strip() if raw_api_hash and raw_api_hash.strip() else "061fb3e46d0d9a3076eada93d91c4d81"
+
+CREATOR_USERNAME = (os.getenv("TELEGRAM_CREATOR_USERNAME") or "Surajpatel223").replace("@", "").strip()
+CREATOR_PHONE = os.getenv("TELEGRAM_CREATOR_PHONE", "7990369253")
+
+raw_cid = os.getenv("TELEGRAM_CREATOR_ID")
+CREATOR_ID = int(raw_cid.strip()) if raw_cid and raw_cid.strip() else 9052978168
+
+TELEGRAM_STRING_SESSION = (os.getenv("TELEGRAM_STRING_SESSION") or "").strip()
+
+LLM_API_KEY = (os.getenv("LLM_API_KEY") or "sk-wQlPOIKM11wjcZXtpwDNUIJfzoV105B7hXuxR19NGzj67B0F").strip()
+LLM_BASE_URL = (os.getenv("LLM_BASE_URL") or "https://api.bluesminds.com/v1").strip()
+LLM_MODEL = (os.getenv("LLM_MODEL") or "nvidia/nemotron-3.5-lightning-30b-a3b").strip()
 
 SESSION_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "telegram_ai_user"))
 NOTIFY_QUEUE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "telegram_notify_queue.jsonl"))

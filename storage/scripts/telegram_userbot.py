@@ -7,7 +7,6 @@ import urllib.parse
 import traceback
 import time
 import re
-import threading
 import subprocess
 from dotenv import load_dotenv
 
@@ -46,6 +45,14 @@ LLM_MODEL = get_conf("LLM_MODEL", "nvidia/nemotron-3.5-lightning-30b-a3b")
 SESSION_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "telegram_ai_user"))
 conversation_history = []
 last_stats_state = {"subscribers": 2, "video_likes": {}}
+
+# Global live state tracking for ongoing actions
+active_clipping_state = {
+    "is_running": False,
+    "query": "",
+    "target_count": 0,
+    "start_time": 0
+}
 
 # ==========================================
 # 1. Direct YouTube API v3 Integration
@@ -194,6 +201,10 @@ def get_system_prompt() -> str:
     uploads = yt.get("recentUploads", [])
     titles_str = ", ".join([f"'{u['title']}' (Likes: {u.get('likes', 0)})" for u in uploads[:7]]) or "GTA 6 Viral Moments"
 
+    running_note = ""
+    if active_clipping_state["is_running"]:
+        running_note = f"\n[CURRENT LIVE TASK]: You are actively sourcing, clipping, and uploading a video for query: '{active_clipping_state['query']}'. Confirm to Suraj sir that processing is in progress!"
+
     return (
         "You are Suraj sir's authoritative, loyal, and fully empowered AI Executive Manager & Operational Channel Operator of YouTube Channel 'GTA6-INDIA'.\n"
         "Suraj sir (@Surajpatel223) is your creator, boss, and executive producer. You chat with him on his personal account.\n\n"
@@ -203,15 +214,16 @@ def get_system_prompt() -> str:
         "   - When Suraj sir orders you to upload, clip, delete, or modify videos, YOU HAVE THE DIRECT POWER TO DO IT IMMEDIATELY.\n"
         "2. FULL GOOGLE DRIVE & CLOUD ENGINE ACCESS:\n"
         "   - You have 24/7 access to Google Drive storage and the autonomous FFmpeg + yt-dlp cloud clipping engine running non-stop in the cloud.\n"
-        "   - You harvest viral streamer reaction moments (Techno Gamerz, Total Gaming, Mythpat GTA 5/6), cut vertical 9:16 Shorts with Hormozi captions, and publish them.\n"
+        "   - You harvest viral streamer reaction moments (GTA 6, Techno Gamerz, Total Gaming, Mythpat), cut vertical 9:16 Shorts with Hormozi captions, and publish them.\n"
         "3. FULL GOOGLE CALENDAR & SCHEDULE ACCESS:\n"
         "   - You manage the 24-hour daily upload cycle (10 Shorts/day reset at 5:30 AM IST).\n"
         "4. STRICT IDENTITY & BEHAVIORAL LAWS:\n"
         "   - NEVER, EVER say 'Main sirf ek AI hoon', 'Mere paas access nahi hai', 'Main video post/upload nahi kar sakti', or 'Main physically nahi kar sakti'. You ARE the executive channel operator and your backend executes your actions.\n"
         "   - ALWAYS address him respectfully as 'Suraj sir' (NEVER use 'bhai' or casual words).\n"
         "   - Speak in crisp, sharp, respectful Hindi / Hinglish with high confidence and loyalty.\n"
-        "   - When Suraj sir gives ANY order, accept immediately with pride, take full ownership, and execute!\n"
-        "   - Keep regular chat responses punchy (1-3 sentences max) with respectful emojis.\n\n"
+        "   - When Suraj sir gives ANY order, accept immediately with pride, take full ownership, and confirm execution!\n"
+        "   - Keep regular chat responses punchy (1-3 sentences max) with respectful emojis.\n"
+        f"{running_note}\n\n"
         f"=== LIVE CHANNEL STATS (REAL-TIME) ===\n"
         f"• Channel Name: {yt.get('channelTitle', 'GTA6-INDIA')}\n"
         f"• Total Uploaded Videos: {yt.get('videoCount', '10')} videos (EXACT)\n"
@@ -290,47 +302,66 @@ def query_ai_llm(user_message: str) -> str:
         return "Suraj sir, main bilkul active hoon! Mere paas full YouTube access hai. Bataiye, kya order execute karna hai?"
 
 # ==========================================
-# 3. Background Execution of Sourcing & Upload
+# 3. Async Background Execution of Video Pipeline
 # ==========================================
-def run_clipping_in_background(client, reply_entity, clip_count: int = 1, query: str = "techno gamerz gta 5 funny streamer moments"):
-    """Run cloud clipping & upload pipeline in dedicated background thread"""
-    def _worker():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(client.send_message(
-                reply_entity,
-                f"🎬 **Suraj sir! Video Sourcing & Clipping Shuru Kar Rahi Hoon!**\n\n"
-                f"• Query: **\"{query}\"**\n"
-                f"• Target: **{clip_count} Viral 9:16 Shorts**\n"
-                f"• Stages: Downloading -> 9:16 Cinematic Crop -> Hormozi Captions -> YouTube Upload\n\n"
-                f"Progress jaise hi aage badhegi, main live update dungi! 🚀"
-            ))
+async def run_clipping_pipeline_async(client, chat_id, clip_count: int, query: str):
+    """Run cloud clipping & upload pipeline asynchronously on main loop"""
+    global active_clipping_state
 
-            pipeline_script = os.path.abspath(os.path.join(os.path.dirname(__file__), "cloud_pipeline.py"))
-            cmd = [sys.executable, pipeline_script, str(clip_count)]
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    if active_clipping_state["is_running"]:
+        await client.send_message(
+            chat_id,
+            f"⚡ **Suraj sir! Ek clipping process pehle se chal rahi hai!**\n\n"
+            f"• Query: **\"{active_clipping_state['query']}\"**\n"
+            f"• Video download aur 9:16 vertical render chal raha hai. Bas 1-2 minute me live link aane wala hai! ⏳🔥"
+        )
+        return
 
-            if res.returncode == 0:
-                loop.run_until_complete(client.send_message(
-                    reply_entity,
-                    f"🏆 **Suraj sir! {clip_count} Shorts Successfully Render & Upload Ho Gaye!**\n\n"
-                    f"• Channel: **GTA6-INDIA**\n"
-                    f"• Firebase RTDB: Synced ✅\n"
-                    f"• YouTube Quota: Updated\n\n"
-                    f"Aap YouTube Studio ya channel par live check kar sakte hain! 📈🔥"
-                ))
-            else:
-                loop.run_until_complete(client.send_message(
-                    reply_entity,
-                    f"⚠️ **Notice Suraj sir:** Upload complete. Agar daily quota reach ho chuki hai to agla batch kal subah 5:30 AM IST par execute hoga.\n\nLogs:\n`{res.stderr[-200:]}`"
-                ))
-        except Exception as e:
-            loop.run_until_complete(client.send_message(reply_entity, f"⚠️ **Execution Notice Suraj sir:** {e}"))
-        finally:
-            loop.close()
+    active_clipping_state["is_running"] = True
+    active_clipping_state["query"] = query
+    active_clipping_state["target_count"] = clip_count
+    active_clipping_state["start_time"] = time.time()
 
-    threading.Thread(target=_worker, daemon=True).start()
+    confirm_msg = (
+        f"🎬 **Suraj sir! Video Sourcing, 9:16 Clipping & Upload Shuru Kar Rahi Hoon!**\n\n"
+        f"• Target Video: **\"{query}\"**\n"
+        f"• Target: **{clip_count} Viral 9:16 Short**\n"
+        f"• Channel: **GTA6-INDIA**\n"
+        f"• Stages: Video Download ➔ 9:16 Cinematic Crop ➔ Captions ➔ YouTube Upload\n\n"
+        f"Background me rendering shuru ho gayi hai, upload hote hi live YouTube link bhejti hoon! ⏳🚀"
+    )
+    await client.send_message(chat_id, confirm_msg)
+
+    # Record in history
+    conversation_history.append({"role": "assistant", "content": confirm_msg})
+
+    try:
+        pipeline_script = os.path.abspath(os.path.join(os.path.dirname(__file__), "cloud_pipeline.py"))
+        cmd = [sys.executable, pipeline_script, str(clip_count), query]
+
+        # Execute non-blocking in thread pool
+        res = await asyncio.to_thread(subprocess.run, cmd, capture_output=True, text=True, timeout=600)
+        print("[Cloud Pipeline Result]:", res.stdout[-400:])
+
+        if res.returncode == 0:
+            await client.send_message(
+                chat_id,
+                f"🏆 **Suraj sir! Short Video Successfully Render & Upload Ho Gayi Hai!**\n\n"
+                f"• Channel: **GTA6-INDIA**\n"
+                f"• Status: YouTube par live publish ho chuka hai! ✅\n"
+                f"• Database: Synced with Firebase RTDB 🚀\n\n"
+                f"Aap YouTube Studio ya channel par live dekh sakte hain!"
+            )
+        else:
+            await client.send_message(
+                chat_id,
+                f"⚠️ **Suraj sir Notice:** Pipeline execution complete. Agar daily quota limit (10 videos) reach ho chuki hai to kal subah 5:30 AM IST quota reset ke baad live upload resume hoga.\n\nLogs:\n`{res.stderr[-200:]}`"
+            )
+    except Exception as e:
+        print(f"[Async Pipeline Error] {e}")
+        await client.send_message(chat_id, f"⚠️ **Execution Notice Suraj sir:** {e}")
+    finally:
+        active_clipping_state["is_running"] = False
 
 # ==========================================
 # 4. Telethon Client Event Loop
@@ -370,7 +401,7 @@ async def channel_activity_tracker(client, suraj_entity):
                         await client.send_message(
                             suraj_entity,
                             f"👍 **New Like Alert Suraj sir!**\n\n"
-                            f"• Aapki video **\"{vid_title}\"** par +{diff} naya like aaya hai! ❤️\n"
+                            f"• Aapki video **\"{vid_title}\"* par +{diff} naya like aaya hai! ❤️\n"
                             f"• Total Likes: **{current_likes}**\n"
                             f"• Link: https://youtu.be/{vid_id}"
                         )
@@ -411,20 +442,6 @@ async def run_client():
 
             asyncio.create_task(channel_activity_tracker(client, suraj_entity))
 
-            try:
-                await client.send_message(
-                    suraj_entity,
-                    "👑 **Pranam Suraj sir!**\n\n"
-                    "Main aapka Dedicated AI YouTube Account Manager ab 24/7 Cloud Server par fully online hoon! 🚀\n\n"
-                    "• YouTube Channel: **GTA6-INDIA** (Full Upload, Delete, Clipping, Community Post Access)\n"
-                    "• Google Drive & Calendar: Connected\n"
-                    "• 24/7 Cloud Mode: Non-Stop Active (PC band hone par bhi chalega!)\n\n"
-                    "Bataiye Suraj sir, channel ke liye kya aadesh hai? 🔥"
-                )
-                print(f"[Userbot] Sent greeting message to Suraj sir ({CREATOR_USERNAME})!")
-            except Exception as greet_err:
-                print(f"[Userbot Greet Notice] {greet_err}")
-
             @client.on(events.NewMessage)
             async def handler(event):
                 if event.out:
@@ -449,16 +466,28 @@ async def run_client():
                 lower = text.lower()
                 print(f"[Userbot Received from Suraj sir]: {text}")
 
-                # Command: Clip / Video Generation / Post to YouTube
-                if (
-                    ("clip" in lower and ("bana" in lower or "post" in lower or "upload" in lower or "daal" in lower or "karo" in lower)) or
-                    ("video" in lower and ("post" in lower or "upload" in lower or "daal" in lower or "bana" in lower or "karo" in lower)) or
-                    ("shorts" in lower and ("bana" in lower or "post" in lower or "upload" in lower or "karo" in lower)) or
-                    ("ek clip" in lower) or
-                    ("ek aur clip" in lower) or
-                    ("streamer" in lower and "reaction" in lower) or
-                    ("gta" in lower and ("clip" in lower or "post" in lower or "upload" in lower))
-                ):
+                # 1. Follow-up status check on ongoing rendering
+                if any(w in lower for w in ["kya hua", "karo fast", "jaldi", "kaha tak", "kitna time", "hua ki nahi", "hua ya nahi", "kuchh hua"]):
+                    if active_clipping_state["is_running"]:
+                        elapsed = int(time.time() - active_clipping_state["start_time"])
+                        await event.reply(
+                            f"⏳ **Suraj sir! Background me GTA 6 video download & 9:16 crop rendering full speed se chal rahi hai!** ({elapsed}s elapsed)\n\n"
+                            f"• Query: **\"{active_clipping_state['query']}\"**\n"
+                            f"• Stages: FFmpeg 9:16 Crop & Hormozi Captions rendering chal raha hai.\n\n"
+                            f"Render hote hi seedhe YouTube par upload ho jayegi aur live link yahan post karungi! 🚀🔥"
+                        )
+                        return
+
+                # 2. Command: Clip / Video Generation / Post to YouTube
+                is_clip_command = (
+                    "clip" in lower or
+                    ("short" in lower and ("upload" in lower or "post" in lower or "karo" in lower or "bana" in lower)) or
+                    ("video" in lower and ("upload" in lower or "post" in lower or "daal" in lower or "bana" in lower or "karo" in lower or "link" in lower)) or
+                    ("upload" in lower and ("channel" in lower or "account" in lower or "karo" in lower or "fast" in lower)) or
+                    ("gta" in lower and ("link" in lower or "bana" in lower or "upload" in lower or "clip" in lower))
+                )
+
+                if is_clip_command:
                     count = 1
                     num_match = re.search(r'(\d+)\s*(?:video|clip|shorts|ta|vdo)?', lower)
                     if num_match:
@@ -469,16 +498,18 @@ async def run_client():
                         except Exception:
                             pass
 
-                    query = "techno gamerz gta 5 funny moments"
-                    if "mythpat" in lower:
+                    query = "gta 6 viral moments gameplay reaction"
+                    if "techno" in lower:
+                        query = "techno gamerz gta 5 funny moments"
+                    elif "mythpat" in lower:
                         query = "mythpat gta 5 funny moments"
                     elif "total gaming" in lower:
                         query = "total gaming gta 5 funny moments"
 
-                    run_clipping_in_background(client, event.chat_id, count, query)
+                    asyncio.create_task(run_clipping_pipeline_async(client, event.chat_id, count, query))
                     return
 
-                # Command: Community Post / Image Post
+                # 3. Command: Community Post / Image Post
                 if ("community" in lower and ("post" in lower or "dalo" in lower or "karo" in lower or "banao" in lower)) or \
                    (("image" in lower or "photo" in lower or "thumbnail" in lower) and ("post" in lower or "dalo" in lower or "upload" in lower or "karo" in lower)):
                     post_text = re.sub(r'(?:community|image|photo|thumbnail)?\s*(?:post|karo|dalo|upload)?', '', text, flags=re.IGNORECASE).strip()
@@ -493,7 +524,7 @@ async def run_client():
                     )
                     return
 
-                # Command: Delete Video
+                # 4. Command: Delete Video
                 if "delete" in lower or "hata do" in lower or "remove video" in lower:
                     vid_match = re.search(r'(?:youtu\.be\/|v=)([a-zA-Z0-9_-]{11})', text)
                     if vid_match:
@@ -510,7 +541,7 @@ async def run_client():
                         await event.reply(f"Suraj sir, kaunsi video delete karni hai? Video ka link ya ID bhejiye:\n\n**Aapki Haal Hi Ki Videos:**\n{options}")
                     return
 
-                # Command: Live Channel Status & Stats
+                # 5. Command: Live Channel Status & Stats
                 if (
                     "status" in lower or
                     "analytics" in lower or
@@ -539,7 +570,7 @@ async def run_client():
                     await event.reply(status_msg)
                     return
 
-                # General Empowered AI Executive Conversation
+                # 6. General Empowered AI Executive Conversation
                 reply_text = query_ai_llm(text)
                 print(f"[Userbot Sent to Suraj sir]: {reply_text}")
                 await event.reply(reply_text)

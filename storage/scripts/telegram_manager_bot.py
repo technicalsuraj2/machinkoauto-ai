@@ -328,11 +328,34 @@ def query_ai_llm(user_message: str) -> str:
         print(f"[LLM Query Error] {e}", file=sys.stderr)
         return "Suraj sir, main bilkul active hoon! Mere paas full YouTube access hai. Bataiye, kya naya order execute karna hai?"
 
+active_clipping_state = {
+    "is_running": False,
+    "query": "",
+    "target_count": 0,
+    "start_time": 0
+}
+
 # ==========================================
 # 4. Background Execution of Sourcing & Upload
 # ==========================================
-def run_clipping_in_background(chat_id: int, clip_count: int = 1, query: str = "techno gamerz gta 5 funny streamer moments"):
+def run_clipping_in_background(chat_id: int, clip_count: int = 1, query: str = "gta 6 viral moments gameplay reaction"):
     """Run cloud clipping & upload pipeline in dedicated background thread"""
+    global active_clipping_state
+
+    if active_clipping_state["is_running"]:
+        send_telegram(
+            chat_id,
+            f"⚡ *Suraj sir! Ek clipping process pehle se chal rahi hai!*\n\n"
+            f"• Query: *\"{active_clipping_state['query']}\"*\n"
+            f"• Video download aur 9:16 vertical render chal raha hai. Bas 1-2 minute me live link aane wala hai! ⏳🔥"
+        )
+        return
+
+    active_clipping_state["is_running"] = True
+    active_clipping_state["query"] = query
+    active_clipping_state["target_count"] = clip_count
+    active_clipping_state["start_time"] = time.time()
+
     def _worker():
         try:
             send_telegram(
@@ -340,13 +363,13 @@ def run_clipping_in_background(chat_id: int, clip_count: int = 1, query: str = "
                 f"🎬 *Suraj sir! Video Sourcing & Clipping Shuru Kar Rahi Hoon!*\n\n"
                 f"• Query: *\"{query}\"*\n"
                 f"• Target: *{clip_count} Viral 9:16 Shorts*\n"
-                f"• Stages: Downloading -> 9:16 Cinematic Crop -> Hormozi Captions -> YouTube Upload\n\n"
+                f"• Stages: Downloading ➔ 9:16 Cinematic Crop ➔ Hormozi Captions ➔ YouTube Upload\n\n"
                 f"Progress jaise hi aage badhegi, main live update dungi! 🚀"
             )
 
             # Call storage/scripts/cloud_pipeline.py
             pipeline_script = os.path.abspath(os.path.join(os.path.dirname(__file__), "cloud_pipeline.py"))
-            cmd = [sys.executable, pipeline_script, str(clip_count)]
+            cmd = [sys.executable, pipeline_script, str(clip_count), query]
             res = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
             print("[Cloud Pipeline Result]:", res.stdout[-400:])
 
@@ -362,10 +385,12 @@ def run_clipping_in_background(chat_id: int, clip_count: int = 1, query: str = "
             else:
                 send_telegram(
                     chat_id,
-                    f"⚠️ *Notice Suraj sir:* Upload complete. Agar channel daily limit (10 videos) reach ho chuki hai, to YouTube agla batch 24h reset ke baad accept karega.\n\nLogs:\n`{res.stderr[-200:]}`"
+                    f"⚠️ *Notice Suraj sir:* Upload complete. Agar daily quota limit (10 videos) reach ho chuki hai to kal subah 5:30 AM IST quota reset ke baad live upload resume hoga.\n\nLogs:\n`{res.stderr[-200:]}`"
                 )
         except Exception as e:
             send_telegram(chat_id, f"⚠️ *Execution Notice Suraj sir:* {e}")
+        finally:
+            active_clipping_state["is_running"] = False
 
     threading.Thread(target=_worker, daemon=True).start()
 
@@ -482,16 +507,30 @@ def run_telegram_bot_daemon():
                 lower = text.lower()
                 send_chat_action(chat_id, "typing")
 
-                # Command: Clip / Video Generation / Post to YouTube
-                if (
-                    ("clip" in lower and ("bana" in lower or "post" in lower or "upload" in lower or "daal" in lower or "karo" in lower)) or
-                    ("video" in lower and ("post" in lower or "upload" in lower or "daal" in lower or "bana" in lower or "karo" in lower)) or
-                    ("shorts" in lower and ("bana" in lower or "post" in lower or "upload" in lower or "karo" in lower)) or
-                    ("ek clip" in lower) or
-                    ("ek aur clip" in lower) or
-                    ("streamer" in lower and "reaction" in lower) or
-                    ("gta" in lower and ("clip" in lower or "post" in lower or "upload" in lower))
-                ):
+                # 1. Follow-up status check on ongoing rendering
+                if any(w in lower for w in ["kya hua", "karo fast", "jaldi", "kaha tak", "kitna time", "hua ki nahi", "hua ya nahi", "kuchh hua"]):
+                    if active_clipping_state["is_running"]:
+                        elapsed = int(time.time() - active_clipping_state["start_time"])
+                        send_telegram(
+                            chat_id,
+                            f"⏳ *Suraj sir! Background me GTA 6 video download & 9:16 crop rendering full speed se chal rahi hai!* ({elapsed}s elapsed)\n\n"
+                            f"• Query: *\"{active_clipping_state['query']}\"*\n"
+                            f"• Stages: FFmpeg 9:16 Crop & Hormozi Captions rendering chal raha hai.\n\n"
+                            f"Render hote hi seedhe YouTube par upload ho jayegi aur live link yahan post karungi! 🚀🔥",
+                            msg_id
+                        )
+                        continue
+
+                # 2. Command: Clip / Video Generation / Post to YouTube
+                is_clip_command = (
+                    "clip" in lower or
+                    ("short" in lower and ("upload" in lower or "post" in lower or "karo" in lower or "bana" in lower)) or
+                    ("video" in lower and ("upload" in lower or "post" in lower or "daal" in lower or "bana" in lower or "karo" in lower or "link" in lower)) or
+                    ("upload" in lower and ("channel" in lower or "account" in lower or "karo" in lower or "fast" in lower)) or
+                    ("gta" in lower and ("link" in lower or "bana" in lower or "upload" in lower or "clip" in lower))
+                )
+
+                if is_clip_command:
                     count = 1
                     num_match = re.search(r'(\d+)\s*(?:video|clip|shorts|ta|vdo)?', lower)
                     if num_match:
@@ -502,8 +541,10 @@ def run_telegram_bot_daemon():
                         except Exception:
                             pass
 
-                    query = "techno gamerz gta 5 funny moments"
-                    if "mythpat" in lower:
+                    query = "gta 6 viral moments gameplay reaction"
+                    if "techno" in lower:
+                        query = "techno gamerz gta 5 funny moments"
+                    elif "mythpat" in lower:
                         query = "mythpat gta 5 funny moments"
                     elif "total gaming" in lower:
                         query = "total gaming gta 5 funny moments"

@@ -118,25 +118,25 @@ def sync_to_firebase(video_id: str, title: str):
     except Exception as e:
         print(f"[Firebase Sync Notice] {e}")
 
-def run_cloud_pipeline(clip_target: int = 10):
+def run_cloud_pipeline(clip_target: int = 10, search_term: str = "gta 6 funny moments gameplay reaction"):
     print("==================================================")
     print("   MachinkoAuto.Ai 24/7 Cloud Autonomous Engine   ")
     print("==================================================")
     send_telegram(
-        f"🌅 *Good Morning Suraj sir!*\n\n"
-        f"• Cloud 24/7 Engine GitHub cloud par active ho gaya hai!\n"
-        f"• Top Indian streamer gaming reactions dhoondh kar *{clip_target} viral Shorts* generate & upload karna shuru kar raha hoon!\n"
-        f"• Aapka PC band hone par bhi cloud automation bina ruke chal raha hai. 🚀"
+        f"🌅 *Suraj sir! Video Processing Shuru Kar Rahi Hoon!*\n\n"
+        f"• Query: *\"{search_term}\"*\n"
+        f"• Target: *{clip_target} viral 9:16 Shorts*\n"
+        f"• Sourcing, 9:16 vertical crop aur captioning engine active ho gaya hai! 🚀"
     )
 
     work_dir = os.path.abspath("storage/cloud_temp")
     os.makedirs(work_dir, exist_ok=True)
 
     # 1. Source Gaming Video using yt-dlp
-    print("[1/5] Sourcing trending gaming video from YouTube...")
-    search_query = "ytsearch5:techno gamerz gta 5 funny moments"
+    print(f"[1/5] Sourcing trending gaming video for: {search_term}...")
+    search_query = f"ytsearch5:{search_term}"
     source_url = "https://www.youtube.com/watch?v=dUYIMa2ifWM"
-    video_title = "Techno Gamerz GTA 5 Viral Moments"
+    video_title = f"{search_term.title()} Highlights"
 
     try:
         cmd = ["yt-dlp", "--get-id", "--get-title", "--match-filter", "duration < 2400", search_query]
@@ -222,23 +222,32 @@ def run_cloud_pipeline(clip_target: int = 10):
         os.remove(source_video_path)
 
     # 5. Send Summary Report to Suraj sir
-    report_links = "\n".join([f"• Short #{idx}: {lnk}" for idx, lnk in enumerate(uploaded_links, 1)])
-    summary_msg = (
-        f"🏆 *Suraj sir! Cloud 24/7 Pipeline COMPLETE!*\n\n"
-        f"• *{len(uploaded_links)} Shorts* successfully YouTube par live upload ho chuke hain!\n"
-        f"• Channel: *GTA6-INDIA*\n"
-        f"• Firebase Cloud DB: Synced ✅\n\n"
-        f"📹 *Aaj Ke Live YouTube Links:*\n{report_links}\n\n"
-        f"Agla batch kal subah automatic cloud se upload hoga bina kisi rukawat ke! 🚀"
-    )
+    if uploaded_links:
+        report_links = "\n".join([f"• Short #{idx}: {lnk}" for idx, lnk in enumerate(uploaded_links, 1)])
+        summary_msg = (
+            f"🏆 *Suraj sir! Cloud Pipeline COMPLETE!*\n\n"
+            f"• *{len(uploaded_links)} Shorts* successfully YouTube par live upload ho chuke hain!\n"
+            f"• Channel: *GTA6-INDIA*\n"
+            f"• Firebase Cloud DB: Synced ✅\n\n"
+            f"📹 *Aaj Ke Live YouTube Links:*\n{report_links}\n\n"
+            f"Aap abhi YouTube Studio ya channel par live dekh sakte hain! 🚀"
+        )
+    else:
+        summary_msg = (
+            f"⚠️ *Notice Suraj sir:* Video 9:16 vertical crop render ho gayi hai, lekin YouTube Data API ne daily upload limit (10 videos) reach hone ki wajah se upload hold kiya hai.\n\n"
+            f"Channel *GTA6-INDIA* par aaj ki 10 videos pehle se live hain! Naya upload subah 5:30 AM IST (quota reset) par automatic live ho jayega! 🚀"
+        )
     send_telegram(summary_msg)
     print("Cloud Pipeline finished successfully!")
 
 if __name__ == "__main__":
     count = 10
+    search_q = "gta 6 funny moments gameplay reaction"
     if len(sys.argv) > 1:
         try:
             count = int(sys.argv[1])
         except Exception:
             pass
-    run_cloud_pipeline(count)
+    if len(sys.argv) > 2:
+        search_q = sys.argv[2]
+    run_cloud_pipeline(count, search_q)

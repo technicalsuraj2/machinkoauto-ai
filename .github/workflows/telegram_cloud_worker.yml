@@ -32,13 +32,16 @@ jobs:
 
       - name: Install Python Dependencies
         run: |
-          pip install requests python-dotenv yt-dlp
+          pip install telethon requests python-dotenv yt-dlp
 
-      - name: Run Telegram AI Manager Cloud Daemon
+      - name: Run Telegram AI Executive Daemons (Bot & User Account)
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CREATOR_ID: ${{ secrets.TELEGRAM_CREATOR_ID }}
           TELEGRAM_CREATOR_USERNAME: ${{ secrets.TELEGRAM_CREATOR_USERNAME }}
+          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+          TELEGRAM_STRING_SESSION: ${{ secrets.TELEGRAM_STRING_SESSION }}
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
@@ -47,4 +50,6 @@ jobs:
           LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
           LLM_MODEL: ${{ secrets.LLM_MODEL }}
         run: |
-          python -u storage/scripts/telegram_manager_bot.py
+          python -u storage/scripts/telegram_userbot.py &
+          python -u storage/scripts/telegram_manager_bot.py &
+          wait

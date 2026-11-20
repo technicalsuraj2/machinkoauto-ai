@@ -46,6 +46,7 @@ storage/*.session*
 storage/scripts/*.session*
 storage/cloud_env.json
 storage/string_session.txt
+storage/telegram_auth_state.json
 storage/telegram_notify_queue.jsonl
 storage/downloads/
 storage/cloud_temp/

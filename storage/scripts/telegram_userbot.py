@@ -370,6 +370,7 @@ async def run_client():
 
                 # General Dynamic AI Conversation
                 reply_text = query_ai_llm(text)
+                print(f"[Userbot Sent to Suraj sir]: {reply_text}")
                 await event.reply(reply_text)
 
             print("[Userbot] 24/7 AI Manager online for Suraj sir!")

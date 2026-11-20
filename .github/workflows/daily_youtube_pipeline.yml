@@ -1,0 +1,48 @@
+name: 24/7 Autonomous YouTube Daily Pipeline
+
+on:
+  schedule:
+    # Runs automatically every day at 00:00 UTC (5:30 AM IST)
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+    inputs:
+      clip_count:
+        description: 'Number of viral Shorts to generate and upload'
+        required: true
+        default: '10'
+
+jobs:
+  run-pipeline:
+    name: Generate & Upload 10 Shorts
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install FFmpeg & System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Install Python Requirements
+        run: |
+          pip install yt-dlp
+
+      - name: Execute Autonomous Cloud Pipeline
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          FIREBASE_DATABASE_URL: ${{ secrets.FIREBASE_DATABASE_URL }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CREATOR_ID: ${{ secrets.TELEGRAM_CREATOR_ID }}
+        run: |
+          python storage/scripts/cloud_pipeline.py ${{ github.event.inputs.clip_count || 10 }}

@@ -1,0 +1,170 @@
+// PostgreSQL schema for Supabase / Railway / VPS
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                 String             @id @default(cuid())
+  name               String?
+  email              String?            @unique
+  emailVerified      DateTime?
+  image              String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  connections        Connection[]
+  videos             Video[]
+  automationSettings AutomationSetting?
+  generationJobs     GenerationJob[]
+  logs               Log[]
+  clipJobs           ClipJob[]
+
+  @@map("users")
+}
+
+model Connection {
+  id                    String   @id @default(cuid())
+  userId                String   @map("user_id")
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider              String   // "drive" | "youtube"
+  encryptedRefreshToken String   @map("encrypted_refresh_token")
+  channelName           String?  @map("channel_name")
+  channelId             String?  @map("channel_id")
+  status                String   @default("connected") // "connected" | "needs_reconnect" | "disconnected"
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  @@unique([userId, provider])
+  @@map("connections")
+}
+
+model Video {
+  id             String   @id @default(cuid())
+  userId         String   @map("user_id")
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  driveFileId    String   @map("drive_file_id")
+  localPath      String?  @map("local_path")
+  thumbnailPath  String?  @map("thumbnail_path")
+  fileName       String   @map("file_name")
+  title          String
+  description    String?
+  tags           String?
+  privacy        String   @default("private") // "private" | "unlisted" | "public"
+  madeForKids    Boolean  @default(false) @map("made_for_kids")
+  orderIndex     Int      @default(0) @map("order_index")
+  status         String   @default("pending") // "pending" | "uploading" | "uploaded" | "failed" | "paused"
+  youtubeVideoId String?  @map("youtube_video_id")
+  error          String?
+  attempts       Int      @default(0)
+  progress       Int      @default(0)
+  fileSize       String?  @map("file_size")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@map("videos")
+}
+
+model AutomationSetting {
+  id               String    @id @default(cuid())
+  userId           String    @unique @map("user_id")
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  gapMinutes       Int       @default(15) @map("gap_minutes")
+  dailyLimit       Int       @default(6) @map("daily_limit")
+  isRunning        Boolean   @default(false) @map("is_running")
+  lastUploadedAt   DateTime? @map("last_uploaded_at")
+  todayUploadCount Int       @default(0) @map("today_upload_count")
+  quotaPausedUntil DateTime? @map("quota_paused_until")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@map("automation_settings")
+}
+
+model GenerationJob {
+  id            String   @id @default(cuid())
+  userId        String   @map("user_id")
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  prompt        String
+  aspectRatio   String   @default("16:9") @map("aspect_ratio")
+  duration      Int      @default(5)
+  style         String?
+  status        String   @default("pending") // "pending" | "processing" | "completed" | "failed"
+  providerJobId String?  @map("provider_job_id")
+  driveFileId   String?  @map("drive_file_id")
+  videoUrl      String?  @map("video_url")
+  autoUpload    Boolean  @default(false) @map("auto_upload")
+  error         String?
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@map("generation_jobs")
+}
+
+model Log {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  level     String   @default("info") // "info" | "warn" | "error"
+  message   String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("logs")
+}
+
+model ClipJob {
+  id               String   @id @default(cuid())
+  userId           String   @map("user_id")
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  youtubeUrl       String   @map("youtube_url")
+  videoTitle       String?  @map("video_title")
+  videoThumbnail   String?  @map("video_thumbnail")
+  videoDuration    Int      @default(0) @map("video_duration") // in seconds
+  clipCount        Int      @default(5) @map("clip_count")
+  clipLength       String   @default("auto") @map("clip_length") // "15s" | "30s" | "45s" | "60s" | "auto"
+  convertToShorts  Boolean  @default(true) @map("convert_to_shorts")
+  autoCaptions     Boolean  @default(true) @map("auto_captions")
+  captionLanguage  String   @default("auto") @map("caption_language") // "auto" | "hi" | "en" | "hinglish"
+  captionStyle     String   @default("bold_yellow") @map("caption_style") // "classic" | "bold_yellow" | "karaoke" | "minimal"
+  captionPosition  String   @default("bottom") @map("caption_position") // "bottom" | "center" | "top"
+  fontSize         Int      @default(24) @map("font_size")
+  maxWordsPerLine  Int      @default(3) @map("max_words_per_line")
+  status           String   @default("pending") // "pending" | "downloading" | "transcribing" | "analyzing" | "cutting" | "captioning" | "completed" | "failed"
+  progress         Int      @default(0) // 0-100
+  currentStep      String?  @map("current_step")
+  error            String?
+  sourceVideoPath  String?  @map("source_video_path")
+  audioPath        String?  @map("audio_path")
+  transcriptJson   String?  @map("transcript_json")
+  deleteOriginal   Boolean  @default(false) @map("delete_original")
+  clips            Clip[]
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@map("clip_jobs")
+}
+
+model Clip {
+  id             String   @id @default(cuid())
+  jobId          String   @map("job_id")
+  job            ClipJob  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  clipIndex      Int      @map("clip_index")
+  title          String
+  description    String?
+  thumbnailPath  String?  @map("thumbnail_path")
+  startTime      Float    @map("start_time")
+  endTime        Float    @map("end_time")
+  duration       Float
+  funScore       Int      @default(85) @map("fun_score")
+  videoPath      String   @map("video_path")
+  noCaptionsPath String?  @map("no_captions_path")
+  hasCaptions    Boolean  @default(true) @map("has_captions")
+  isQueued       Boolean  @default(false) @map("is_queued")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@map("clips")
+}

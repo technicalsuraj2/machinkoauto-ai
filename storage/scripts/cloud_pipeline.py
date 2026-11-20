@@ -170,10 +170,22 @@ def run_cloud_pipeline(clip_target: int = 10):
     access_token = get_youtube_access_token()
     uploaded_links = []
 
-    # Calculate intervals
+    # Calculate intervals based on duration
     clip_duration = 30
+    total_sec = 600
+    try:
+        probe_cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", source_video_path]
+        p_res = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=10)
+        val = float(p_res.stdout.strip())
+        if val > 60:
+            total_sec = val
+    except Exception:
+        pass
+
+    step = max(35, (total_sec - 40) / max(clip_target, 1))
+
     for i in range(clip_target):
-        start_time = 60 + (i * 90) # spaced out high-energy moments
+        start_time = int(20 + (i * step))
         out_clip_path = os.path.join(work_dir, f"clip_{i+1}.mp4")
         
         # FFmpeg 9:16 vertical crop with high quality

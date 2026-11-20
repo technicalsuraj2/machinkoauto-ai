@@ -43,6 +43,7 @@ next-env.d.ts
 
 # storage sessions and cloud secrets
 storage/*.session*
+storage/scripts/*.session*
 storage/cloud_env.json
 storage/string_session.txt
 storage/telegram_notify_queue.jsonl

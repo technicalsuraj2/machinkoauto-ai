@@ -241,6 +241,12 @@ def run_cloud_pipeline(clip_target: int = 10, search_term: str = "gta 6 funny mo
     if os.path.exists(source_video_path):
         os.remove(source_video_path)
 
+    # Zero-Storage Guarantee: Wipe all temporary directories completely
+    if os.path.exists(work_dir):
+        import shutil
+        shutil.rmtree(work_dir, ignore_errors=True)
+        print("[Zero-Storage] Successfully cleared all temp video files!")
+
     # 5. Send Summary Report to Suraj sir
     if uploaded_links:
         report_links = "\n".join([f"• Short #{idx}: {lnk}" for idx, lnk in enumerate(uploaded_links, 1)])

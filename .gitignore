@@ -25,6 +25,7 @@ yarn-error.log*
 # local env files
 .env*.local
 .env
+.env.netlify
 
 # vercel
 .vercel
@@ -43,6 +44,7 @@ next-env.d.ts
 # storage sessions and cloud secrets
 storage/*.session*
 storage/cloud_env.json
+storage/string_session.txt
 storage/telegram_notify_queue.jsonl
 storage/downloads/
 storage/cloud_temp/

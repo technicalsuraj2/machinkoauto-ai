@@ -6,6 +6,8 @@ import urllib.request
 import traceback
 import time
 import re
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from dotenv import load_dotenv
 
 # Load environment
@@ -16,7 +18,8 @@ API_ID = int(os.getenv("TELEGRAM_API_ID", "38595785"))
 API_HASH = os.getenv("TELEGRAM_API_HASH", "061fb3e46d0d9a3076eada93d91c4d81")
 CREATOR_USERNAME = os.getenv("TELEGRAM_CREATOR_USERNAME", "Surajpatel223").replace("@", "")
 CREATOR_PHONE = os.getenv("TELEGRAM_CREATOR_PHONE", "7990369253")
-CREATOR_ID = 9052978168
+CREATOR_ID = int(os.getenv("TELEGRAM_CREATOR_ID", "9052978168"))
+TELEGRAM_STRING_SESSION = os.getenv("TELEGRAM_STRING_SESSION", "").strip()
 
 LLM_API_KEY = os.getenv("LLM_API_KEY", "sk-wQlPOIKM11wjcZXtpwDNUIJfzoV105B7hXuxR19NGzj67B0F")
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.bluesminds.com/v1")
@@ -24,6 +27,35 @@ LLM_MODEL = os.getenv("LLM_MODEL", "nvidia/nemotron-3.5-lightning-30b-a3b")
 
 SESSION_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "telegram_ai_user"))
 NOTIFY_QUEUE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "telegram_notify_queue.jsonl"))
+
+# Embedded HTTP Health Server for 24/7 Cloud Platforms (Render, Koyeb, Railway, HuggingFace)
+class CloudHealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        payload = json.dumps({
+            "status": "online",
+            "service": "MachinkoAuto.Ai Telegram AI Executive Manager",
+            "creator": "Suraj sir",
+            "bot": "YouTube (8606326303)",
+            "timestamp": time.time()
+        }).encode("utf-8")
+        self.wfile.write(payload)
+
+    def log_message(self, format, *args):
+        pass # Suppress access logs
+
+def start_background_health_server():
+    try:
+        port = int(os.getenv("PORT", "8080"))
+        server = HTTPServer(("0.0.0.0", port), CloudHealthHandler)
+        print(f"[Cloud Health Server] Listening on port {port}...")
+        server.serve_forever()
+    except Exception as e:
+        print(f"[Cloud Health Server Warning] {e}")
+
+threading.Thread(target=start_background_health_server, daemon=True).start()
 
 # Maintain in-memory conversation history
 conversation_history = []
@@ -37,11 +69,21 @@ last_stats_state = {
 
 def fetch_live_system_context() -> dict:
     """Fetch real-time YouTube Channel, SQLite, and Firebase stats from backend API"""
+    cloud_url = os.getenv("STATS_API_URL") or "https://machinkoauto-ai.netlify.app/api/channel/stats"
+    # First try localhost if running locally
     try:
         req = urllib.request.Request("http://localhost:3000/api/channel/stats")
+        with urllib.request.urlopen(req, timeout=3) as res:
+            return json.loads(res.read().decode("utf-8"))
+    except Exception:
+        pass
+
+    # Try Cloud Netlify / Firebase API
+    try:
+        req = urllib.request.Request(cloud_url)
         with urllib.request.urlopen(req, timeout=8) as res:
             return json.loads(res.read().decode("utf-8"))
-    except Exception as e:
+    except Exception:
         return {
             "youtube": {"channelTitle": "GTA6-INDIA", "videoCount": "10", "subscriberCount": "2", "recentUploads": []},
             "database": {"todayUploadCount": 10, "dailyLimit": 10, "pendingVideos": 0, "firebaseSyncedVideos": 10}
@@ -223,11 +265,16 @@ async def channel_activity_tracker(client, suraj_entity):
 
 async def run_client():
     from telethon import TelegramClient, events
+    from telethon.sessions import StringSession
 
     while True:
         try:
             print(f"[Userbot] Connecting Telegram Client (API ID: {API_ID})...")
-            client = TelegramClient(SESSION_PATH, API_ID, API_HASH)
+            if TELEGRAM_STRING_SESSION:
+                print("[Userbot] Initializing with 24/7 Cloud StringSession...")
+                client = TelegramClient(StringSession(TELEGRAM_STRING_SESSION), API_ID, API_HASH)
+            else:
+                client = TelegramClient(SESSION_PATH, API_ID, API_HASH)
             await client.connect()
 
             if not await client.is_user_authorized():

@@ -135,12 +135,18 @@ def run_cloud_pipeline(clip_target: int = 10, search_term: str = "gta 6 funny mo
     # 1. Source Gaming Video using yt-dlp
     print(f"[1/5] Sourcing trending gaming video for: {search_term}...")
     search_query = f"ytsearch5:{search_term}"
-    source_url = "https://www.youtube.com/watch?v=dUYIMa2ifWM"
+    source_url = "https://www.youtube.com/watch?v=QdBZY2fkU-0" # GTA 6 Official Trailer
     video_title = f"{search_term.title()} Highlights"
 
     try:
-        cmd = ["yt-dlp", "--get-id", "--get-title", "--match-filter", "duration < 2400", search_query]
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+        cmd = [
+            "yt-dlp",
+            "--extractor-args", "youtube:player_client=android,ios,web",
+            "--get-id", "--get-title",
+            "--match-filter", "duration < 2400",
+            search_query
+        ]
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=25)
         lines = [l.strip() for l in res.stdout.strip().split("\n") if l.strip()]
         if len(lines) >= 2:
             video_title = lines[0]
@@ -150,19 +156,33 @@ def run_cloud_pipeline(clip_target: int = 10, search_term: str = "gta 6 funny mo
         print(f"Search fallback: {e}")
 
     # 2. Download source video
-    print("[2/5] Downloading video via yt-dlp...")
+    print(f"[2/5] Downloading video via yt-dlp: {source_url}...")
     source_video_path = os.path.join(work_dir, "source.mp4")
     if os.path.exists(source_video_path):
         os.remove(source_video_path)
 
     dl_cmd = [
         "yt-dlp",
-        "-f", "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-        "--merge-output-format", "mp4",
+        "--extractor-args", "youtube:player_client=android,ios,web",
+        "-f", "best[ext=mp4]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best",
+        "--no-check-certificates",
+        "--force-ipv4",
         "-o", source_video_path,
         source_url
     ]
-    subprocess.run(dl_cmd, check=True)
+    try:
+        subprocess.run(dl_cmd, check=True)
+    except Exception as dl_err:
+        print(f"Download error on primary URL, trying fallback: {dl_err}")
+        # Secondary fallback
+        fallback_cmd = [
+            "yt-dlp",
+            "--extractor-args", "youtube:player_client=android",
+            "-f", "best[ext=mp4]/best",
+            "-o", source_video_path,
+            "https://www.youtube.com/watch?v=QdBZY2fkU-0"
+        ]
+        subprocess.run(fallback_cmd, check=True)
     print("Source video downloaded successfully!")
 
     # 3. Cut Clips (9:16 Vertical with Cinematic crop)

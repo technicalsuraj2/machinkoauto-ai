@@ -33,7 +33,7 @@ jobs:
 
       - name: Install Python Requirements
         run: |
-          pip install yt-dlp
+          pip install -r requirements.txt
 
       - name: Execute Autonomous Cloud Pipeline
         env:

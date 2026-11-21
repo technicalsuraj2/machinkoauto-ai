@@ -3,8 +3,12 @@ name: 24/7 Telegram AI Executive Manager Cloud Daemon
 on:
   workflow_dispatch:
   schedule:
-    # Automatically triggers every 4 hours to stay perpetually online
-    - cron: '0 */4 * * *'
+    # Backup safety net triggers every 2 hours
+    - cron: '0 */2 * * *'
+
+permissions:
+  actions: write
+  contents: read
 
 concurrency:
   group: telegram-manager-cloud
@@ -25,10 +29,10 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install System Dependencies (FFmpeg)
+      - name: Install System Dependencies (FFmpeg & Fonts)
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
 
       - name: Install Python Dependencies
         run: |
@@ -36,6 +40,8 @@ jobs:
 
       - name: Run Telegram AI Executive Daemons (Bot & User Account)
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CREATOR_ID: ${{ secrets.TELEGRAM_CREATOR_ID }}
           TELEGRAM_CREATOR_USERNAME: ${{ secrets.TELEGRAM_CREATOR_USERNAME }}
@@ -50,6 +56,4 @@ jobs:
           LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
           LLM_MODEL: ${{ secrets.LLM_MODEL }}
         run: |
-          python -u storage/scripts/telegram_userbot.py &
-          python -u storage/scripts/telegram_manager_bot.py &
-          wait
+          python -u storage/scripts/run_cloud_telegram.py

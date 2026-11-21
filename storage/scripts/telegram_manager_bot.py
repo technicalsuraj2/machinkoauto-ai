@@ -24,7 +24,12 @@ if os.path.exists(cfg_file):
         pass
 
 def get_conf(key, default=""):
-    return (os.getenv(key) or cloud_cfg.get(key) or default).strip()
+    val = os.getenv(key)
+    if val is None or val == "":
+        val = cloud_cfg.get(key, default)
+    if val is None:
+        val = default
+    return str(val).strip()
 
 BOT_TOKEN = get_conf("TELEGRAM_BOT_TOKEN", "8512499007:AAE2du0m0FMAlJu1FXv_UmkhEQBg0arrD0A")
 CREATOR_ID = int(get_conf("TELEGRAM_CREATOR_ID", "9052978168"))

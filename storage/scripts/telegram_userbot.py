@@ -25,7 +25,12 @@ if os.path.exists(cfg_file):
         pass
 
 def get_conf(key, default=""):
-    return (os.getenv(key) or cloud_cfg.get(key) or default).strip()
+    val = os.getenv(key)
+    if val is None or val == "":
+        val = cloud_cfg.get(key, default)
+    if val is None:
+        val = default
+    return str(val).strip()
 
 API_ID = int(get_conf("TELEGRAM_API_ID", "38595785"))
 API_HASH = get_conf("TELEGRAM_API_HASH", "061fb3e46d0d9a3076eada93d91c4d81")

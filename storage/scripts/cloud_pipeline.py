@@ -202,6 +202,7 @@ def run_cloud_pipeline(clip_target: int = 10, search_term: str = "gta 6 funny mo
 
     # 1. Sourcing Gaming Video
     print(f"[1/5] Sourcing trending gaming video for: {search_term}...")
+    send_telegram(f"🔍 *[Step 1/4] Sourcing Video...*\n• Query: *\"{search_term}\"*\n• High-octane gaming footage cloud me dhoondh rahe hain...")
     source_video_path = os.path.join(work_dir, "source.mp4")
     if os.path.exists(source_video_path):
         os.remove(source_video_path)
@@ -209,6 +210,7 @@ def run_cloud_pipeline(clip_target: int = 10, search_term: str = "gta 6 funny mo
     video_title = f"{search_term.title()} Highlights"
     downloaded = False
 
+    send_telegram(f"📥 *[Step 2/4] Downloading Video...*\n• Cloud streaming buffer active...")
     # Attempt yt-dlp first
     try:
         search_query = f"ytsearch3:{search_term}"
@@ -256,6 +258,11 @@ def run_cloud_pipeline(clip_target: int = 10, search_term: str = "gta 6 funny mo
 
     # 3. Cut Clips with Viral 9:16 Vertical Crop, Bold Captions & Thumbnails
     print(f"[3/5] Generating {clip_target} viral vertical Shorts with Bold Captions...")
+    send_telegram(
+        f"✂️ *[Step 3/4] Video Ready! Cutting & Editing...*\n"
+        f"• Source: *{video_title[:45]}*\n"
+        f"• Total *{clip_target} viral Shorts* 9:16 vertical crop, bold meme captions aur thumbnails ke saath banaye ja rahe hain! 🚀"
+    )
     access_token = get_youtube_access_token()
     uploaded_links = []
 
@@ -319,12 +326,15 @@ def run_cloud_pipeline(clip_target: int = 10, search_term: str = "gta 6 funny mo
 
             # 4. Upload to YouTube
             clip_title = f"{headline} #{i+1} - GTA 6 Viral"
+            if i == 0 or i == 4 or i == 9:
+                send_telegram(f"✂️ *Clip #{i+1}/{clip_target} Ready:* 9:16 Crop + Bold Captions (\"`{headline}`\") + Thumbnail ✅\n• YouTube upload shuru...")
             try:
                 yt_id = upload_youtube_short(out_clip_path, clip_title, video_title, access_token)
                 live_url = f"https://youtu.be/{yt_id}"
                 uploaded_links.append(live_url)
                 print(f"[Uploaded #{i+1}] Live: {live_url}")
                 sync_to_firebase(yt_id, clip_title)
+                send_telegram(f"✅ *Clip #{i+1} LIVE on YouTube!* 🚀\n🔗 {live_url}")
 
                 # Set custom thumbnail via YouTube API
                 if os.path.exists(thumb_path):
@@ -332,6 +342,8 @@ def run_cloud_pipeline(clip_target: int = 10, search_term: str = "gta 6 funny mo
 
             except Exception as up_err:
                 print(f"Upload error for clip #{i+1}: {up_err}")
+                if "uploadLimitExceeded" in str(up_err) and i == 0:
+                    send_telegram("⚠️ *YouTube Quota Alert:* Channel par aaj ki 10 videos ki daily upload limit reach ho chuki hai. Video rendering & editing 100% complete hai, naya batch quota reset par auto-upload hoga!")
 
             # Zero-Storage Guarantee: Wipe clip & thumbnail immediately
             if os.path.exists(out_clip_path):

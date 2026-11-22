@@ -48,6 +48,21 @@ DIRECT_GAMEPLAY_SOURCES = [
     "https://archive.org/download/GTA5LandingOnABLIMPFullVideoGTA5FunnyMoments/GTA%205%20Landing%20on%20a%20BLIMP%21%20Full%20Video%20%20%20GTA%205%20Funny%20Moments.mp4"
 ]
 
+def check_stop_flag(channel_id: str = "UCOkeAWVV2ES-p9-75e2QH3A") -> bool:
+    """Check Firebase RTDB for STOP_ALL or GTA6 stop flag"""
+    try:
+        url = f"{FIREBASE_URL.rstrip('/')}/system_control/stop_flags.json"
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=5) as res:
+            data = json.loads(res.read().decode("utf-8") or "{}")
+            if data.get("STOP_ALL", False):
+                return True
+            if channel_id and data.get("channels", {}).get(channel_id, False):
+                return True
+    except Exception:
+        pass
+    return False
+
 def send_telegram(text: str):
     """Send direct notification to Suraj sir via Telegram Bot with plain text fallback"""
     if not TELEGRAM_BOT_TOKEN:
@@ -296,6 +311,11 @@ def run_cloud_pipeline(clip_target: int = 10, search_term: str = "gta 6 funny mo
 
     try:
         for i in range(clip_target):
+            if check_stop_flag():
+                print("[GTA6 Pipeline] STOP flag detected by owner order! Halting execution.")
+                send_telegram("🛑 *[GTA6-INDIA] Upload Process Stopped by Owner Order!* Process safely aborted.")
+                break
+
             start_time = int(10 + (i * step))
             out_clip_path = os.path.join(work_dir, f"clip_{i+1}.mp4")
             thumb_path = os.path.join(work_dir, f"thumb_{i+1}.jpg")

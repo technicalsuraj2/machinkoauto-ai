@@ -8,13 +8,15 @@ import traceback
 import time
 import re
 import subprocess
+import concurrent.futures
 from dotenv import load_dotenv
 
-# Load environment
+# ==========================================
+# 0. Environment & Configuration
+# ==========================================
 env_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
 load_dotenv(env_path)
 
-# Cloud env fallback
 cfg_file = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "cloud_env.json"))
 cloud_cfg = {}
 if os.path.exists(cfg_file):
@@ -49,21 +51,120 @@ LLM_BASE_URL = get_conf("LLM_BASE_URL", "https://api.bluesminds.com/v1")
 LLM_MODEL = get_conf("LLM_MODEL", "nvidia/nemotron-3.5-lightning-30b-a3b")
 
 SESSION_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "telegram_ai_user"))
-conversation_history = []
-last_stats_state = {"subscribers": {}, "video_views": {}}
+DAILY_CHANNEL_LIMIT = 10
 
-# Global live state tracking for ongoing actions
-active_pipeline_state = {
-    "is_running": False,
-    "action": "",
-    "start_time": 0
+# Global active process and task tracking
+active_pipeline_process = None
+active_pipeline_info = {"is_running": False, "channel": "all", "count": 0, "start_time": 0}
+conversation_history = []
+
+# Known channel alias mapping for intelligent fuzzy matching
+CHANNEL_ALIASES = {
+    "UCOkeAWVV2ES-p9-75e2QH3A": {
+        "name": "GTA6-INDIA",
+        "aliases": ["gt6", "gta6", "gta 6", "gta", "gta-india", "channel 1", "gta channel"]
+    },
+    "UC0ETQHUTkhw1d7Ylu30FbIQ": {
+        "name": "AGSC CART",
+        "aliases": ["agsc", "cart", "agsc cart", "channel 2", "agsc channel"]
+    },
+    "UCKJcMheLl_FJWeEWaz073MQ": {
+        "name": "D& V fashion ",
+        "aliases": ["fashion", "d&v", "d & v", "d and v", "dv", "channel 3", "fashion channel"]
+    },
+    "UCkJXq3gCfROIFW4UEK4A8Pg": {
+        "name": "Cinema Nest",
+        "aliases": ["cinema", "nest", "cinema nest", "channel 4", "cinema channel"]
+    }
 }
 
 # ==========================================
-# 1. Multi-Channel YouTube Statistics API
+# 1. Firebase State & Stop Flag Helpers
+# ==========================================
+def get_stop_flags() -> dict:
+    """Retrieve current stop flags from Firebase RTDB"""
+    try:
+        url = f"{FIREBASE_DATABASE_URL}/system_control/stop_flags.json"
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=5) as res:
+            return json.loads(res.read().decode("utf-8") or "{}")
+    except Exception:
+        return {}
+
+def set_stop_flags(data: dict):
+    """Write stop flags to Firebase RTDB"""
+    try:
+        url = f"{FIREBASE_DATABASE_URL}/system_control/stop_flags.json"
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(data).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="PUT"
+        )
+        urllib.request.urlopen(req, timeout=6)
+    except Exception as e:
+        print(f"[Set Stop Flags Notice] {e}")
+
+def get_quota_status() -> dict:
+    """Retrieve quota status per channel from Firebase RTDB"""
+    try:
+        url = f"{FIREBASE_DATABASE_URL}/system_control/quota_status.json"
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=5) as res:
+            return json.loads(res.read().decode("utf-8") or "{}")
+    except Exception:
+        return {}
+
+def log_system_event(event_type: str, details: str):
+    """Log an execution event in Firebase RTDB"""
+    try:
+        ts = int(time.time() * 1000)
+        url = f"{FIREBASE_DATABASE_URL}/system_control/logs/{ts}.json"
+        payload = {
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "type": event_type,
+            "details": details
+        }
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="PUT"
+        )
+        urllib.request.urlopen(req, timeout=5)
+    except Exception:
+        pass
+
+# ==========================================
+# 2. Fuzzy Channel Matcher
+# ==========================================
+def match_channel(text: str) -> dict | None:
+    """Fuzzy match user text to a connected YouTube channel"""
+    if not text:
+        return None
+    lower = text.lower()
+
+    # Exact alias check
+    for ch_id, meta in CHANNEL_ALIASES.items():
+        if meta["name"].lower() in lower:
+            return {"channelId": ch_id, "channelName": meta["name"]}
+        for alias in meta["aliases"]:
+            # Word boundary search
+            if re.search(r'\b' + re.escape(alias) + r'\b', lower):
+                return {"channelId": ch_id, "channelName": meta["name"]}
+
+    # Fallback partial substring check
+    for ch_id, meta in CHANNEL_ALIASES.items():
+        for alias in meta["aliases"]:
+            if alias in lower:
+                return {"channelId": ch_id, "channelName": meta["name"]}
+
+    return None
+
+# ==========================================
+# 3. Core Tools Suite (As Required)
 # ==========================================
 def get_channel_token(refresh_token: str) -> str:
-    """Exchange refresh token for fresh YouTube access token"""
     url = "https://oauth2.googleapis.com/token"
     payload = urllib.parse.urlencode({
         "client_id": GOOGLE_CLIENT_ID,
@@ -76,107 +177,39 @@ def get_channel_token(refresh_token: str) -> str:
         data = json.loads(res.read().decode("utf-8"))
         return data["access_token"]
 
-def get_connected_channels_from_firebase() -> dict:
-    """Fetch all connected YouTube channels from Firebase RTDB"""
-    try:
-        url = f"{FIREBASE_DATABASE_URL}/channels.json"
-        req = urllib.request.Request(url)
-        with urllib.request.urlopen(req, timeout=10) as res:
-            data = json.loads(res.read().decode("utf-8"))
-            if data and isinstance(data, dict):
-                return data
-    except Exception as e:
-        print(f"[Firebase Channels Error] {e}")
-    return {}
-
-def fetch_single_channel_stats(channel_id: str, refresh_token: str) -> dict:
-    """Fetch real-time stats, subscribers, views, and recent uploads for a channel"""
+def fetch_single_channel_fast(ch_id: str, refresh_token: str) -> dict:
+    """Fetch live channel stats quickly from YouTube API"""
     try:
         token = get_channel_token(refresh_token)
-        ch_url = "https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics,contentDetails&mine=true"
+        ch_url = "https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&mine=true"
         req = urllib.request.Request(ch_url, headers={"Authorization": f"Bearer {token}"})
-        with urllib.request.urlopen(req, timeout=10) as res:
+        with urllib.request.urlopen(req, timeout=8) as res:
             ch_data = json.loads(res.read().decode("utf-8"))
-
         items = ch_data.get("items", [])
-        if not items:
-            return None
-
-        ch = items[0]
-        stats = ch.get("statistics", {})
-        snippet = ch.get("snippet", {})
-        pl_id = ch.get("contentDetails", {}).get("relatedPlaylists", {}).get("uploads")
-
-        recent_uploads = []
-        if pl_id:
-            try:
-                pl_url = f"https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId={pl_id}&maxResults=5"
-                pl_req = urllib.request.Request(pl_url, headers={"Authorization": f"Bearer {token}"})
-                with urllib.request.urlopen(pl_req, timeout=10) as pl_res:
-                    pl_data = json.loads(pl_res.read().decode("utf-8"))
-                    raw = pl_data.get("items", [])
-                    v_ids = [it["snippet"]["resourceId"]["videoId"] for it in raw if it.get("snippet", {}).get("resourceId", {}).get("videoId")]
-
-                    stats_map = {}
-                    if v_ids:
-                        v_url = f"https://www.googleapis.com/youtube/v3/videos?part=statistics&id={','.join(v_ids)}"
-                        v_req = urllib.request.Request(v_url, headers={"Authorization": f"Bearer {token}"})
-                        with urllib.request.urlopen(v_req, timeout=10) as v_res:
-                            v_data = json.loads(v_res.read().decode("utf-8"))
-                            for v_item in v_data.get("items", []):
-                                stats_map[v_item["id"]] = {
-                                    "likes": int(v_item.get("statistics", {}).get("likeCount", 0)),
-                                    "views": int(v_item.get("statistics", {}).get("viewCount", 0))
-                                }
-
-                    for it in raw:
-                        vid = it["snippet"]["resourceId"]["videoId"]
-                        s = stats_map.get(vid, {"likes": 0, "views": 0})
-                        recent_uploads.append({
-                            "id": vid,
-                            "title": it["snippet"].get("title", "Untitled"),
-                            "publishedAt": it["snippet"].get("publishedAt", ""),
-                            "likes": s["likes"],
-                            "views": s["views"]
-                        })
-            except Exception as pl_err:
-                print(f"[Uploads fetch warning for {channel_id}] {pl_err}")
-
-        return {
-            "channelId": channel_id,
-            "title": snippet.get("title", "YouTube Channel"),
-            "subscribers": int(stats.get("subscriberCount", 0)),
-            "videos": int(stats.get("videoCount", 0)),
-            "views": int(stats.get("viewCount", 0)),
-            "recentUploads": recent_uploads
-        }
+        if items:
+            ch = items[0]
+            stats = ch.get("statistics", {})
+            snippet = ch.get("snippet", {})
+            return {
+                "channelId": ch_id,
+                "title": snippet.get("title", "YouTube Channel"),
+                "subscribers": int(stats.get("subscriberCount", 0)),
+                "videos": int(stats.get("videoCount", 0)),
+                "views": int(stats.get("viewCount", 0))
+            }
     except Exception as e:
-        print(f"[Fetch Channel Stats Error {channel_id}]: {e}")
-        return None
-
-def get_network_overview() -> dict:
-    """Fetch live stats across all connected channels"""
-    channels_map = get_connected_channels_from_firebase()
-    result = {}
-    for ch_id, ch_info in channels_map.items():
-        rf = ch_info.get("refreshToken")
-        if not rf:
-            continue
-        stats = fetch_single_channel_stats(ch_id, rf)
-        if stats:
-            result[ch_id] = stats
-    return result
-
-DAILY_CHANNEL_LIMIT = 10
+        print(f"[Fetch Channel Fast Error {ch_id}]: {e}")
+    meta = CHANNEL_ALIASES.get(ch_id, {})
+    return {"channelId": ch_id, "title": meta.get("name", "Channel"), "subscribers": 0, "videos": 0, "views": 0}
 
 def get_today_upload_stats() -> dict:
-    """Fetch exact today's upload count per channel from Firebase RTDB"""
+    """Fetch count of videos uploaded today per channel"""
     today_str = time.strftime("%Y-%m-%d", time.gmtime())
     counts = {"UCOkeAWVV2ES-p9-75e2QH3A": 10} # GTA6-INDIA 10 completed
     try:
         url = f"{FIREBASE_DATABASE_URL}/uploaded_drive_files.json"
         req = urllib.request.Request(url)
-        with urllib.request.urlopen(req, timeout=8) as res:
+        with urllib.request.urlopen(req, timeout=6) as res:
             data = json.loads(res.read().decode("utf-8") or "{}")
             if data and isinstance(data, dict):
                 for item in data.values():
@@ -189,14 +222,13 @@ def get_today_upload_stats() -> dict:
     return counts
 
 def get_db_channel_uploads() -> dict:
-    """Fetch exact uploaded videos per channel from Firebase RTDB"""
+    """Fetch exact uploaded videos today per channel from Firebase RTDB"""
     today_str = time.strftime("%Y-%m-%d", time.gmtime())
     res = {}
     try:
-        # 1. Drive uploads
         url = f"{FIREBASE_DATABASE_URL}/uploaded_drive_files.json"
         req = urllib.request.Request(url)
-        with urllib.request.urlopen(req, timeout=8) as r:
+        with urllib.request.urlopen(req, timeout=6) as r:
             data = json.loads(r.read().decode("utf-8") or "{}")
             for fid, item in data.items():
                 ch_name = item.get("channelName", "Channel").strip()
@@ -212,10 +244,9 @@ def get_db_channel_uploads() -> dict:
                     "isToday": up_at.startswith(today_str)
                 })
 
-        # 2. GTA6-INDIA uploads
         gta_url = f"{FIREBASE_DATABASE_URL}/uploads.json"
         req2 = urllib.request.Request(gta_url)
-        with urllib.request.urlopen(req2, timeout=8) as r2:
+        with urllib.request.urlopen(req2, timeout=6) as r2:
             data2 = json.loads(r2.read().decode("utf-8") or "{}")
             gta_key = "UCOkeAWVV2ES-p9-75e2QH3A"
             if gta_key not in res:
@@ -232,254 +263,322 @@ def get_db_channel_uploads() -> dict:
         print(f"[DB Uploads Fetch Error]: {e}")
     return res
 
-def format_channel_report(stats: dict) -> str:
-    """Format single channel statistics report with live database records and clickable links"""
-    title = stats.get("title", "YouTube Channel").strip()
-    ch_id = stats.get("channelId", "")
-    subs = stats.get("subscribers", 0)
-    vids = stats.get("videos", 0)
-    views = stats.get("views", 0)
+def get_all_channels_status() -> dict:
+    """Tool: Get real-time status, quota, and errors for all channels"""
+    channels_map = {}
+    try:
+        url = f"{FIREBASE_DATABASE_URL}/channels.json"
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=6) as res:
+            channels_map = json.loads(res.read().decode("utf-8") or "{}")
+    except Exception:
+        pass
 
     today_counts = get_today_upload_stats()
-    used_today = today_counts.get(ch_id, 0)
-    if "GTA6" in title.upper() or ch_id == "UCOkeAWVV2ES-p9-75e2QH3A":
-        used_today = 10
+    quota_status = get_quota_status()
+    stop_flags = get_stop_flags()
+    is_global_stop = stop_flags.get("STOP_ALL", False)
 
-    # Fetch exact uploaded videos from Firebase RTDB
+    # Parallel YouTube fetch
+    yt_stats = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        futures = {}
+        for ch_id, info in channels_map.items():
+            rf = info.get("refreshToken")
+            if rf:
+                futures[executor.submit(fetch_single_channel_fast, ch_id, rf)] = ch_id
+        for f in concurrent.futures.as_completed(futures):
+            res = f.result()
+            if res:
+                yt_stats[res["channelId"]] = res
+
+    network_report = {}
+    for ch_id, info in channels_map.items():
+        name = info.get("channelName", CHANNEL_ALIASES.get(ch_id, {}).get("name", "Channel")).strip()
+        stats = yt_stats.get(ch_id, {"subscribers": 0, "views": 0, "videos": 0})
+        used = today_counts.get(ch_id, 0)
+        if "GTA6" in name.upper() or ch_id == "UCOkeAWVV2ES-p9-75e2QH3A":
+            used = 10
+        rem = max(0, DAILY_CHANNEL_LIMIT - used)
+        
+        is_exhausted = quota_status.get(ch_id, {}).get("quota_exhausted", False) or used >= 10
+        ch_stop = is_global_stop or stop_flags.get("channels", {}).get(ch_id, False)
+
+        network_report[ch_id] = {
+            "channelId": ch_id,
+            "channelName": name,
+            "subscribers": stats.get("subscribers", 0),
+            "views": stats.get("views", 0),
+            "videos": stats.get("videos", 0),
+            "today_uploaded": used,
+            "today_remaining": rem,
+            "quota_exhausted": is_exhausted,
+            "quota_reset": "00:00 UTC (05:30 AM IST)",
+            "is_stopped": ch_stop
+        }
+
+    return network_report
+
+def get_channel_status(channel_identifier: str) -> dict:
+    """Tool: Get detailed status, recent uploaded videos, and quota for a single channel"""
+    matched = match_channel(channel_identifier)
+    all_status = get_all_channels_status()
     db_uploads = get_db_channel_uploads()
-    ch_db_data = db_uploads.get(ch_id)
-    if not ch_db_data:
+
+    target_id = matched["channelId"] if matched else None
+    if not target_id:
+        for ch_id, s in all_status.items():
+            if channel_identifier.lower() in s["channelName"].lower():
+                target_id = ch_id
+                break
+
+    if not target_id or target_id not in all_status:
+        return {"error": f"Channel '{channel_identifier}' not found in connected channels."}
+
+    ch_info = all_status[target_id]
+    ch_db = db_uploads.get(target_id)
+    if not ch_db:
         for k, v in db_uploads.items():
-            if v.get("channelName", "").strip().upper() == title.upper():
-                ch_db_data = v
+            if v.get("channelName", "").strip().lower() == ch_info["channelName"].lower():
+                ch_db = v
                 break
 
     today_vids = []
-    if ch_db_data:
-        today_vids = [v for v in ch_db_data.get("videos", []) if v.get("isToday")]
+    if ch_db:
+        today_vids = [
+            {"title": v["title"], "url": f"https://youtu.be/{v['id']}", "id": v["id"]}
+            for v in ch_db.get("videos", []) if v.get("isToday")
+        ]
 
-    if today_vids:
-        today_lines = []
-        for i, v in enumerate(today_vids, 1):
-            today_lines.append(f"{i}. [{v['title']}](https://youtu.be/{v['id']})")
-        db_vids_str = "\n".join(today_lines)
+    ch_info["today_videos"] = today_vids
+    return ch_info
+
+def get_logs(limit: int = 8) -> list:
+    """Tool: Get recent logs and upload activity"""
+    logs = []
+    try:
+        url = f"{FIREBASE_DATABASE_URL}/system_control/logs.json?orderBy=\"$key\"&limitToLast={limit}"
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=5) as res:
+            data = json.loads(res.read().decode("utf-8") or "{}")
+            for k in sorted(data.keys(), reverse=True):
+                logs.append(data[k])
+    except Exception:
+        pass
+    return logs
+
+def stop_all_uploads() -> dict:
+    """Tool: Immediately stop ALL uploading processes and set global STOP flag"""
+    global active_pipeline_process, active_pipeline_info
+
+    # 1. Update Firebase RTDB STOP_ALL = True
+    stop_data = {
+        "STOP_ALL": True,
+        "channels": {
+            "UC0ETQHUTkhw1d7Ylu30FbIQ": True,
+            "UCKJcMheLl_FJWeEWaz073MQ": True,
+            "UCkJXq3gCfROIFW4UEK4A8Pg": True,
+            "UCOkeAWVV2ES-p9-75e2QH3A": True
+        },
+        "stopped_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "reason": "Stopped by Owner Command"
+    }
+    set_stop_flags(stop_data)
+
+    # 2. Terminate and Force Kill any active running subprocess
+    killed = False
+    if active_pipeline_process and active_pipeline_process.poll() is None:
+        try:
+            print(f"[STOP] Terminating running pipeline process PID: {active_pipeline_process.pid}")
+            active_pipeline_process.terminate()
+            time.sleep(1)
+            if active_pipeline_process.poll() is None:
+                active_pipeline_process.kill()
+            killed = True
+        except Exception as e:
+            print(f"[Process Kill Notice] {e}")
+
+    active_pipeline_info["is_running"] = False
+    log_system_event("STOP_ALL", "Owner executed stop_all_uploads. Subprocess terminated.")
+
+    return {
+        "status": "stopped",
+        "scope": "all",
+        "process_killed": killed,
+        "message": "Saari uploading band kar di hai. Running processes terminate kar diye gaye hain aur sabhi jobs hold pe daal diye gaye hain."
+    }
+
+def stop_channel(channel_name: str) -> dict:
+    """Tool: Stop uploading on a specific channel, other channels continue"""
+    global active_pipeline_process, active_pipeline_info
+
+    matched = match_channel(channel_name)
+    if not matched:
+        return {"error": f"Channel '{channel_name}' identify nahi ho paya. Kripya channel ka sahi naam batayein."}
+
+    ch_id = matched["channelId"]
+    ch_name = matched["channelName"]
+
+    # 1. Update Firebase RTDB for this specific channel
+    stop_data = get_stop_flags()
+    if "channels" not in stop_data or not isinstance(stop_data["channels"], dict):
+        stop_data["channels"] = {}
+    stop_data["channels"][ch_id] = True
+    stop_data["stopped_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    set_stop_flags(stop_data)
+
+    # 2. If running process is specifically for this channel, kill it
+    killed = False
+    if active_pipeline_process and active_pipeline_process.poll() is None:
+        if active_pipeline_info.get("channel") == ch_name or active_pipeline_info.get("channel") == ch_id:
+            try:
+                active_pipeline_process.terminate()
+                time.sleep(1)
+                if active_pipeline_process.poll() is None:
+                    active_pipeline_process.kill()
+                killed = True
+                active_pipeline_info["is_running"] = False
+            except Exception:
+                pass
+
+    log_system_event("STOP_CHANNEL", f"Stopped channel {ch_name} ({ch_id})")
+
+    return {
+        "status": "stopped",
+        "scope": "single",
+        "channel": ch_name,
+        "channelId": ch_id,
+        "process_killed": killed,
+        "message": f"Channel '{ch_name}' ki uploading band kar di hai, baaki channels chalte rahenge."
+    }
+
+def pause_channel(channel_name: str) -> dict:
+    """Tool: Alias for stop_channel"""
+    return stop_channel(channel_name)
+
+def resume_uploads(channel: str = "all") -> dict:
+    """Tool: Clear stop flag and resume uploading permissions"""
+    stop_data = get_stop_flags()
+
+    if channel in ["all", "sab", "sabhi", None]:
+        stop_data["STOP_ALL"] = False
+        stop_data["channels"] = {}
+        stop_data["resumed_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        set_stop_flags(stop_data)
+        log_system_event("RESUME_ALL", "Owner resumed all uploads.")
+        return {"status": "resumed", "scope": "all", "message": "Sabhi channels par uploading resume kar di gayi hai."}
     else:
-        db_vids_str = "• Aaj abhi tak koi naya video database me record nahi hua hai."
-
-    if used_today >= 10:
-        quota_section = (
-            f"📌 **Upload Quota & Capacity:**\n"
-            f"  • Used Today: **{used_today} / {DAILY_CHANNEL_LIMIT} Videos (Daily Limit 100% Full)** 🛑\n"
-            f"  • Remaining Today: **0 Videos** (YouTube 24-hr limit reached)\n"
-            f"  • Next Upload Window: Kal subah **5:30 AM IST** quota reset ke baad automated uploads resume honge!"
-        )
-    else:
-        rem = max(0, DAILY_CHANNEL_LIMIT - used_today)
-        quota_section = (
-            f"📌 **Upload Quota & Capacity:**\n"
-            f"  • Used Today: **{used_today} / {DAILY_CHANNEL_LIMIT} Videos**\n"
-            f"  • Remaining Capacity: **{rem} Videos aur upload ho sakte hain aaj!** ✅\n"
-            f"  • Source Storage: Google Drive (5,000 BeamNG Clips Bundle)"
-        )
-
-    return (
-        f"📊 **Suraj sir! Live Channel Report: {title}**\n\n"
-        f"• Channel ID: `{ch_id}`\n"
-        f"• Total Subscribers: **{subs}**\n"
-        f"• Total Published Videos: **{vids}**\n"
-        f"• Total Channel Views: **{views}**\n\n"
-        f"{quota_section}\n\n"
-        f"📁 **Aaj Database Se Uploaded Videos ({len(today_vids)} Videos):**\n"
-        f"{db_vids_str}\n\n"
-        f"Main 24/7 is channel ko database se track kar rahi hoon! Bataiye Suraj sir, ispe kya karna hai? 🚀"
-    )
-
-def format_quota_and_capacity_report(network: dict) -> str:
-    """Dedicated report showing exactly which channels and how many videos can still be uploaded today"""
-    today_counts = get_today_upload_stats()
-    eligible_channels = []
-    total_remaining = 0
-    total_used_today = 0
-    lines = []
-
-    for ch_id, s in network.items():
-        name = s.get("title", "Channel")
-        used = today_counts.get(ch_id, 0)
-        if "GTA6" in name.upper() or ch_id == "UCOkeAWVV2ES-p9-75e2QH3A":
-            used = 10
-        rem = max(0, DAILY_CHANNEL_LIMIT - used)
-        total_used_today += used
-        total_remaining += rem
-
-        if rem > 0:
-            eligible_channels.append(name)
-            lines.append(f"• **{name}**: **{rem} videos aur upload ho sakte hain** (Used: {used}/{DAILY_CHANNEL_LIMIT}) ✅")
+        matched = match_channel(channel)
+        if matched:
+            ch_id = matched["channelId"]
+            ch_name = matched["channelName"]
+            if "channels" in stop_data and isinstance(stop_data["channels"], dict):
+                stop_data["channels"][ch_id] = False
+            stop_data["STOP_ALL"] = False
+            set_stop_flags(stop_data)
+            log_system_event("RESUME_CHANNEL", f"Resumed channel {ch_name}")
+            return {"status": "resumed", "scope": "single", "channel": ch_name, "message": f"Channel '{ch_name}' ki uploading resume kar di gayi hai."}
         else:
-            lines.append(f"• **{name}**: **0 videos** (Used: {used}/{DAILY_CHANNEL_LIMIT} - Quota Full, Resets 5:30 AM IST) 🚫")
+            return {"error": f"Channel '{channel}' identify nahi ho saka."}
 
-    breakdown = "\n".join(lines)
-    eligible_names = ", ".join(eligible_channels) if eligible_channels else "None"
+def upload_now(channel: str = "all", count: int = 1) -> dict:
+    """Tool: Trigger upload process for specific channel or all channels"""
+    global active_pipeline_process, active_pipeline_info
 
-    return (
-        f"📋 **Suraj sir! Live Upload Quota & Capacity Report:**\n\n"
-        f"🔥 **Summary:**\n"
-        f"• Open Channels For Upload: **{len(eligible_channels)} Channels** ({eligible_names})\n"
-        f"• Total Remaining Upload Capacity: **{total_remaining} Videos** aur upload ho sakte hain aaj! 🚀\n"
-        f"• Total Videos Published Today: **{total_used_today} Videos**\n\n"
-        f"📌 **Channel-wise Used vs Remaining:**\n"
-        f"{breakdown}\n\n"
-        f"💡 Agar aap chahein to main in {len(eligible_channels)} channels par Google Drive se next batch upload shuru kar sakti hoon. Bas boliye *'upload karo'*! 🚀"
-    )
+    # Check Stop Flags
+    stop_data = get_stop_flags()
+    if stop_data.get("STOP_ALL", False):
+        return {
+            "success": False,
+            "error": "STOP_FLAG_ACTIVE",
+            "message": "Uploading abhi STOP mode pe hai. Pehle 'resume karo' boliye, uske baad uploading shuru hogi."
+        }
 
-def format_all_channels_database_report() -> str:
-    """Format comprehensive database report of all 4 channels with exact video titles and clickable links"""
-    network = get_network_overview()
+    # Check scope
+    target_scope = "all"
+    target_name = "All Channels"
+    if channel and channel.lower() not in ["all", "sab", "sabhi"]:
+        matched = match_channel(channel)
+        if not matched:
+            return {
+                "success": False,
+                "error": "UNCLEAR_CHANNEL",
+                "message": f"Channel '{channel}' identify nahi ho paya. Kaun sa channel, ya sabhi channels pe upload karun?"
+            }
+        target_scope = matched["channelId"]
+        target_name = matched["channelName"]
+
+        if stop_data.get("channels", {}).get(target_scope, False):
+            return {
+                "success": False,
+                "error": "CHANNEL_STOPPED",
+                "message": f"Channel '{target_name}' pe stop flag laga hua hai. Pehle is channel ko 'resume karo' boliye."
+            }
+
+    # Check if pipeline already running
+    if active_pipeline_process and active_pipeline_process.poll() is None:
+        return {
+            "success": False,
+            "error": "ALREADY_RUNNING",
+            "message": f"Ek upload process pehle se background me chal raha hai ({active_pipeline_info.get('channel')}). Naya batch start karne ke liye purana khatam hone dein ya 'stop karo' bolein."
+        }
+
+    # Spawn background pipeline subprocess
+    pipeline_script = os.path.abspath(os.path.join(os.path.dirname(__file__), "multi_channel_pipeline.py"))
+    cmd = [sys.executable, pipeline_script, str(count), target_scope]
+    
+    try:
+        active_pipeline_process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        active_pipeline_info = {
+            "is_running": True,
+            "channel": target_name,
+            "count": count,
+            "start_time": time.time(),
+            "pid": active_pipeline_process.pid
+        }
+        log_system_event("UPLOAD_START", f"Started upload for {target_name} ({count} videos), PID: {active_pipeline_process.pid}")
+
+        return {
+            "success": True,
+            "channel": target_name,
+            "count": count,
+            "pid": active_pipeline_process.pid,
+            "message": f"Channel '{target_name}' par {count} video(s) upload karne ka process shuru kar diya hai. Saare step logs @Youtube_manager123_bot par aa rahe hain."
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e), "message": f"Process launch error: {e}"}
+
+# ==========================================
+# 4. Live System Context for LLM Reasoning
+# ==========================================
+def build_live_system_context() -> str:
+    """Build live, factual real-time context for the Executive LLM on every turn"""
+    all_status = get_all_channels_status()
     db_uploads = get_db_channel_uploads()
-    today_counts = get_today_upload_stats()
+    stop_flags = get_stop_flags()
+    logs = get_logs(limit=4)
 
-    sections = []
-    total_today = 0
+    lines = []
+    for ch_id, s in all_status.items():
+        name = s["channelName"]
+        subs = s["subscribers"]
+        vids = s["videos"]
+        views = s["views"]
+        used = s["today_uploaded"]
+        rem = s["today_remaining"]
+        exh = s["quota_exhausted"]
+        st = s["is_stopped"]
 
-    for ch_id, ch_stats in network.items():
-        name = ch_stats.get("title", "Channel").strip()
-        used = today_counts.get(ch_id, 0)
-        if "GTA6" in name.upper() or ch_id == "UCOkeAWVV2ES-p9-75e2QH3A":
-            used = 10
-        total_today += used
-
-        # Find videos in db_uploads
+        # Today's uploaded videos list with links
         ch_db = db_uploads.get(ch_id)
         if not ch_db:
             for k, v in db_uploads.items():
-                if v.get("channelName", "").strip().upper() == name.upper():
-                    ch_db = v
-                    break
-
-        today_vids = []
-        if ch_db:
-            today_vids = [v for v in ch_db.get("videos", []) if v.get("isToday")]
-
-        if today_vids:
-            v_list = []
-            for i, v in enumerate(today_vids, 1):
-                v_list.append(f"  {i}. [{v['title']}](https://youtu.be/{v['id']})")
-            v_str = "\n".join(v_list)
-        else:
-            v_str = "  • Aaj abhi tak koi naya video database me recorded nahi hai."
-
-        status_badge = "🔴 Daily Limit Full (10/10)" if used >= 10 else f"🟢 {max(0, DAILY_CHANNEL_LIMIT - used)} Videos Remaining ({used}/{DAILY_CHANNEL_LIMIT} Used)"
-
-        sections.append(
-            f"📌 **{name}** ({status_badge})\n"
-            f"  • Subs: **{ch_stats.get('subscribers', 0)}** | Videos: **{ch_stats.get('videos', 0)}** | Views: **{ch_stats.get('views', 0)}**\n"
-            f"  • Aaj Database Se Published Videos ({len(today_vids)}):\n"
-            f"{v_str}"
-        )
-
-    all_sections_str = "\n\n".join(sections)
-    return (
-        f"📊 **Suraj sir! Complete Live Database Network Report:**\n\n"
-        f"🔥 **Summary:** Total **{total_today} Videos** uploaded today across all channels!\n"
-        f"📁 Source: Google Drive Bundle (5,000+ BeamNG Crash Clips) & GTA 6 Stunts\n\n"
-        f"{all_sections_str}\n\n"
-        f"Main 24/7 Firebase Realtime Database se live connected hoon! Bataiye Suraj sir, aage kya plan execute karna hai? 🚀"
-    )
-
-def format_network_overview_report(network: dict) -> str:
-    """Format comprehensive overview of all 4 channels with used quota and remaining capacity"""
-    if not network:
-        return "Suraj sir, abhi channels se data fetch ho raha hai. Ek baar connect status verify karein."
-
-    total_subs = sum(s.get("subscribers", 0) for s in network.values())
-    total_vids = sum(s.get("videos", 0) for s in network.values())
-    total_views = sum(s.get("views", 0) for s in network.values())
-
-    today_counts = get_today_upload_stats()
-
-    ch_cards = []
-    eligible_channels = []
-    total_remaining = 0
-    total_used_today = 0
-
-    for ch_id, s in network.items():
-        name = s.get("title", "Channel")
-        used = today_counts.get(ch_id, 0)
-        if "GTA6" in name.upper() or ch_id == "UCOkeAWVV2ES-p9-75e2QH3A":
-            used = 10
-        rem = max(0, DAILY_CHANNEL_LIMIT - used)
-        total_used_today += used
-        total_remaining += rem
-
-        if rem > 0:
-            eligible_channels.append(name)
-            quota_badge = f"🟢 **{rem} Videos Remaining** ({used}/{DAILY_CHANNEL_LIMIT} Used)"
-        else:
-            quota_badge = f"🔴 **Quota Full** ({used}/{DAILY_CHANNEL_LIMIT} Used - Resets 5:30 AM IST)"
-
-        ch_cards.append(
-            f"📌 **{name}**\n"
-            f"  • Subs: **{s.get('subscribers', 0)}** | Videos: **{s.get('videos', 0)}** | Views: **{s.get('views', 0)}**\n"
-            f"  • Quota: {quota_badge}"
-        )
-
-    cards_str = "\n\n".join(ch_cards)
-    eligible_names = ", ".join(eligible_channels) if eligible_channels else "None"
-
-    return (
-        f"🏢 **Suraj sir! Multi-Channel Network Executive Summary:**\n\n"
-        f"📊 **Aaj Ka Upload Quota & Capacity:**\n"
-        f"• Open Channels For Upload: **{len(eligible_channels)} Channels** ({eligible_names})\n"
-        f"• Total Remaining Capacity: **{total_remaining} Videos** aur upload ho sakte hain aaj! 🚀\n"
-        f"• Network Total Uploaded Today: **{total_used_today} Videos**\n\n"
-        f"📈 **Network Overall Stats:**\n"
-        f"• Total Connected Channels: **{len(network)} Channels**\n"
-        f"• Network Subscribers: **{total_subs}**\n"
-        f"• Total Network Videos: **{total_vids}**\n"
-        f"• Total Network Views: **{total_views}**\n"
-        f"• Google Drive Source: **5,000+ BeamNG Clips Bundle (Active)**\n\n"
-        f"=== **Channel-wise Quota & Stats:** ===\n"
-        f"{cards_str}\n\n"
-        f"Aap kisi bhi specific channel ka naam likhkar (jaise *'gt6 status'*, *'agsc status'*, *'fashion status'*, *'cinema status'*) detailed report maang sakte hain! 🚀"
-    )
-
-# ==========================================
-# 2. Empowered AI Executive Manager LLM
-# ==========================================
-def get_system_prompt() -> str:
-    network = get_network_overview()
-    today_counts = get_today_upload_stats()
-    db_uploads = get_db_channel_uploads()
-
-    lines = []
-    total_rem = 0
-    total_used = 0
-    open_channels = []
-
-    for s in network.values():
-        name = s.get('title', 'Channel')
-        ch_id = s.get('channelId', '')
-        used = today_counts.get(ch_id, 0)
-        if "GTA6" in name.upper() or ch_id == "UCOkeAWVV2ES-p9-75e2QH3A":
-            used = 10
-        rem = max(0, DAILY_CHANNEL_LIMIT - used)
-        total_used += used
-        total_rem += rem
-        if rem > 0:
-            open_channels.append(name)
-        lines.append(
-            f"- Channel: '{name}' | Subs: {s.get('subscribers', 0)} | Total Videos: {s.get('videos', 0)} | "
-            f"Views: {s.get('views', 0)} | Today Used Quota: {used}/{DAILY_CHANNEL_LIMIT} Videos | Remaining Today: {rem} Videos"
-        )
-    net_str = "\n".join(lines)
-
-    # Detailed database snapshot for LLM context
-    db_lines = []
-    for ch_id, s in network.items():
-        ch_title = s.get("title", "Channel").strip()
-        ch_db = db_uploads.get(ch_id)
-        if not ch_db:
-            for k, v in db_uploads.items():
-                if v.get("channelName", "").strip().upper() == ch_title.upper():
+                if v.get("channelName", "").strip().lower() == name.lower():
                     ch_db = v
                     break
         v_list = []
@@ -487,53 +586,59 @@ def get_system_prompt() -> str:
             for v in ch_db.get("videos", []):
                 if v.get("isToday"):
                     v_list.append(f"  • '{v['title']}' (https://youtu.be/{v['id']})")
-        if v_list:
-            db_lines.append(f"📌 {ch_title} ({len(v_list)} videos uploaded today):\n" + "\n".join(v_list[:10]))
-        else:
-            db_lines.append(f"📌 {ch_title}: 0 uploads today in database.")
-    db_str = "\n\n".join(db_lines)
 
-    return (
-        "You are Suraj sir's authoritative, visionary, highly intelligent AI Executive Director & Creative YouTube Operations Partner.\n"
-        "Suraj sir (@Surajpatel223, Telegram ID: 9052978168) is your creator, boss, and sole owner. You report exclusively to Suraj sir.\n\n"
-        "=== YOUR MULTI-CHANNEL NETWORK (REAL-TIME CONTEXT & QUOTA) ===\n"
-        f"{net_str}\n\n"
-        f"• SUMMARY TODAY: {len(open_channels)} channels open ({', '.join(open_channels) if open_channels else 'None'}). "
-        f"Total remaining upload capacity today = {total_rem} videos across network! Already published today = {total_used} videos.\n"
-        "• Channel 1: 'GTA6-INDIA' (GTA 5/6 viral stunts & community highlights). Today's upload quota (10/10) is COMPLETE. Quota resets daily at 5:30 AM IST.\n"
-        "• Channel 2: 'AGSC CART' (5,000 BeamNG Crash Clips bundle, active uploads). 10/10 uploaded today (24-hr daily limit full).\n"
-        "• Channel 3: 'D& V fashion' (5,000 BeamNG Crash Clips bundle, active uploads). 9/10 uploaded today.\n"
-        "• Channel 4: 'Cinema Nest' (5,000 BeamNG Crash Clips bundle, active uploads). 8/10 uploaded today.\n"
-        "• Video Source: Google Drive folder '5000+ Beam Ng Crash Clips Bundle' (Folder ID: 1BEUAM2fnKo6drhy6P42mrM6sBTNWqWbV).\n\n"
-        "=== OFFICIAL FIREBASE DATABASE RECORDS (UPLOADED VIDEOS TODAY) ===\n"
-        f"{db_str}\n\n"
-        "=== CRITICAL INSTRUCTIONS FOR DATA & ANSWERS ===\n"
-        "1. Always address him respectfully as 'Suraj sir'.\n"
-        "2. DATABASE ACCURACY: When Suraj sir asks about data, uploaded videos, channel progress, or video links, ALWAYS give exact titles and direct clickable YouTube links (https://youtu.be/VIDEO_ID) from the OFFICIAL FIREBASE DATABASE RECORDS above. Never say you don't have access or give vague replies.\n"
-        "3. AGSC CART 'BAD REQUEST': If asked why AGSC CART had a Bad Request, explain that AGSC CART successfully uploaded 10 videos today and reached YouTube's rolling 24-hour limit ('uploadLimitExceeded'). The pipeline has been updated to handle this cleanly, and uploads will resume automatically tomorrow at 5:30 AM IST.\n"
-        "4. TONE: Confident, sharp, executive Hindi/Hinglish. Discuss gaming trends (GTA 6 Vice City leaks/physics, BeamNG crash ASMR, Shorts retention) like a master strategist!\n"
-        "======================================\n"
-    )
+        status_flag = "🛑 STOPPED" if st else ("⏳ Quota Exhausted (10/10)" if exh else f"🟢 Active ({rem} capacity left)")
+        recent_vids = v_list[-5:] if len(v_list) > 5 else v_list
+        v_str = "\n".join(recent_vids) if recent_vids else "  (Aaj abhi tak koi naya video upload nahi hua)"
 
-def sanitize_ai_reply(reply: str) -> str:
-    """Strictly eradicate any AI deflection hallucination"""
-    forbidden = [
-        "sirf ek ai", "just an ai", "physically", "access nahi hai",
-        "nahi kar sakta", "cannot upload", "i am an ai", "meri aukaat",
-        "meri capability nahi", "i don't have access", "mere pas access nahi"
-    ]
-    lower_rep = reply.lower()
-    for phrase in forbidden:
-        if phrase in lower_rep:
-            return "Suraj sir! Mere paas aapke sabhi 4 YouTube channels, Google Drive bundle aur cloud automation ka 100% full access hai. Main aapke har aadesh par kaam kar rahi hoon! 🚀"
-    return reply
+        lines.append(
+            f"• Channel: {name} (ID: `{ch_id}`)\n"
+            f"  Status: {status_flag}\n"
+            f"  Subscribers: {subs} | Total Videos: {vids} | Views: {views}\n"
+            f"  Aaj Ka Quota: {used}/10 Uploaded | {rem} Videos Remaining Today\n"
+            f"  Recent Published Videos ({len(v_list)} total today):\n{v_str}"
+        )
 
-def query_ai_llm(user_message: str) -> str:
-    """Call Nemotron LLM with full network context"""
+    channels_context = "\n\n".join(lines)
+    stop_summary = "STOP_ALL ACTIVE (Saari uploading ruki hui hai)" if stop_flags.get("STOP_ALL") else "Uploading Allowed (Flags normal)"
+
+    recent_logs_str = "\n".join([f"[{l.get('timestamp','')}] {l.get('type')}: {l.get('details')}" for l in logs]) if logs else "No recent errors"
+
+    prompt = f"""Tum is YouTube automation system ke Executive AI ho. Tum Telegram ke through owner se baat karte ho aur poora automation control karte ho (5 channels, daily 10 videos, Upload AI tumhare under hai).
+
+Rules:
+1. Owner jo bole, pehle use dhyan se samjho. Phir soch ke jawab do aur kaam karo. Koi fixed jawab ya template nahi.
+2. Kisi bhi status/update ke sawal pe pehle tools se real data lo, phir uske hisaab se jawab do. Kabhi andaaza ya purana jawab mat do.
+3. Owner ka sawal jo ho, usi ka jawab do. Ek hi line baar baar mat bolo.
+4. Owner trend, strategy, ya normal baat kare to ek samajhdaar partner ki tarah baat karo.
+5. Owner ka order sabse upar hai. "Stop", "ruko", "band karo", "pause" jaisa kuch bhi bole to turant maano (neeche STOP rule dekho).
+6. Kaam karne ke baad batao ki kya kiya aur result kya aaya. Agar kuch fail hua to sach batao aur reason batao.
+7. Agar order unclear ho to ek chhota sawal poochho, warna seedha kaam karo.
+8. SCOPE RULE: Owner kisi specific channel ka naam le (jaise "Channel 2 pe upload karo", "Tech channel roko") to SIRF usi channel pe kaam karo, baaki channels ko bilkul touch mat karo. Owner "sabhi", "all channels", "sab pe", "sabko" bole tabhi saare channels pe kaam karo. Agar scope unclear ho (channel ka naam nahi bola aur "all" bhi nahi bola) to ek chhota sawal poochho: "Kaun sa channel, ya sabhi?"
+9. Channel ka naam fuzzy match karo (spelling/Hinglish ki chhoti galti ho to bhi sahi channel pehchano), lekin agar do channels confuse ho rahe hain to pooch lo.
+
+=== LIVE SYSTEM DATA (REAL-TIME STATUS FROM TOOLS) ===
+System Stop Status: {stop_summary}
+Recent Events:
+{recent_logs_str}
+
+Channels Live Snapshot:
+{channels_context}
+
+INSTRUCTION: Address the owner respectfully as 'Suraj sir'. Speak in natural, human Hinglish without repeating generic lines. Always base your reply on the real-time data above. When asked about video links or uploads, cite the exact titles and https://youtu.be/ links from the live data.
+"""
+    return prompt
+
+def query_executive_llm(user_message: str, tool_result_context: str = "") -> str:
+    """Call Nemotron LLM with live system context and reasoning"""
     global conversation_history
 
-    system_message = {"role": "system", "content": get_system_prompt()}
-    
+    system_prompt = build_live_system_context()
+    if tool_result_context:
+        system_prompt += f"\n\n=== RECENT TOOL EXECUTION RESULT ===\n{tool_result_context}\n"
+
+    system_message = {"role": "system", "content": system_prompt}
+
     if not conversation_history:
         conversation_history = [system_message]
     else:
@@ -541,6 +646,7 @@ def query_ai_llm(user_message: str) -> str:
 
     conversation_history.append({"role": "user", "content": user_message})
 
+    # Keep conversation context compact
     if len(conversation_history) > 13:
         conversation_history = [conversation_history[0]] + conversation_history[-12:]
 
@@ -550,7 +656,7 @@ def query_ai_llm(user_message: str) -> str:
             "model": LLM_MODEL,
             "messages": conversation_history,
             "max_tokens": 1500,
-            "temperature": 0.7
+            "temperature": 0.65
         }
         req = urllib.request.Request(
             url,
@@ -560,85 +666,31 @@ def query_ai_llm(user_message: str) -> str:
                 "Authorization": f"Bearer {LLM_API_KEY}"
             }
         )
-        with urllib.request.urlopen(req, timeout=25) as resp:
+        with urllib.request.urlopen(req, timeout=30) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             msg = data.get("choices", [{}])[0].get("message", {})
             content = msg.get("content")
 
             if not content:
                 reasoning = msg.get("reasoning_content") or ""
-                if "**Determine Appropriate Response:**" in reasoning:
-                    content = reasoning.split("**Determine Appropriate Response:**")[-1].strip()
+                if "**Response:**" in reasoning:
+                    content = reasoning.split("**Response:**")[-1].strip()
                 elif "Response:" in reasoning:
                     content = reasoning.split("Response:")[-1].strip()
                 else:
-                    lines = [l for l in reasoning.split("\n") if l.strip() and not l.startswith("-") and not l.startswith("*")]
-                    content = lines[-1] if lines else "Suraj sir, main bilkul ready hoon aur aapke har aadesh par kaam kar rahi hoon!"
+                    paras = [p.strip() for p in reasoning.split("\n\n") if p.strip()]
+                    cand = [p for p in paras if not p.lower().startswith("here's a thinking") and not p.lower().startswith("1.") and not p.lower().startswith("let's")]
+                    content = cand[-1] if cand else "Suraj sir, sabhi channels ka data live database se track ho raha hai."
 
-            content = sanitize_ai_reply(content.strip())
+            content = content.strip()
             conversation_history.append({"role": "assistant", "content": content})
             return content
     except Exception as e:
         print(f"[LLM Query Error] {e}", file=sys.stderr)
-        return "Suraj sir, main bilkul active hoon! Mere paas chaaron YouTube channels aur Google Drive ka live access hai. Bataiye, kis channel ka report chahiye ya kya order execute karna hai?"
+        return "Suraj sir, main 24/7 active hoon aur sabhi channels ka data monitor kar rahi hoon. Bataiye, kis channel ka update chahiye ya kya action lena hai?"
 
 # ==========================================
-# 3. Async Background Execution of Upload Pipelines
-# ==========================================
-async def run_multi_channel_upload_async(client, chat_id, count_per_channel: int = 3):
-    """Run Drive upload pipeline across active channels asynchronously with clean personal chat"""
-    global active_pipeline_state
-
-    if active_pipeline_state["is_running"]:
-        await client.send_message(
-            chat_id,
-            f"⚡ **Suraj sir! Ek upload automation batch pehle se background me chal raha hai!**\n\n"
-            f"• Action: **{active_pipeline_state['action']}**\n"
-            f"• Video download, 9:16 crop & YouTube upload chal raha hai. Sare live step logs aapke official bot @Youtube_manager123_bot par aa rahe hain! ⏳🔥"
-        )
-        return
-
-    active_pipeline_state["is_running"] = True
-    active_pipeline_state["action"] = f"Multi-Channel Upload ({count_per_channel} clips/channel)"
-    active_pipeline_state["start_time"] = time.time()
-
-    confirm_msg = (
-        f"🎬 **Ji Suraj sir! Sabhi open channels par quota fill karne ke liye upload process shuru kar di hai!** 🚀\n\n"
-        f"• Target Channels: **AGSC CART, D& V fashion, Cinema Nest**\n"
-        f"• Source: Google Drive (5,000 BeamNG Clips Bundle)\n"
-        f"• Watermark: None (Channel Name Skipped per order)\n\n"
-        f"Sare live step-by-step logs aur YouTube video links aapke official bot **@Youtube_manager123_bot** par deliver ho rahe hain!"
-    )
-    await client.send_message(chat_id, confirm_msg)
-
-    try:
-        pipeline_script = os.path.abspath(os.path.join(os.path.dirname(__file__), "multi_channel_pipeline.py"))
-        cmd = [sys.executable, pipeline_script, str(count_per_channel)]
-
-        res = await asyncio.to_thread(subprocess.run, cmd, capture_output=True, text=True, timeout=1800)
-        print("[Multi-Channel Pipeline Result]:", res.stdout[-400:])
-
-        if res.returncode == 0:
-            await client.send_message(
-                chat_id,
-                f"🏆 **Suraj sir! Upload batch successfully complete ho gaya hai!**\n\n"
-                f"• AGSC CART, D& V fashion, aur Cinema Nest par nayi videos publish ho chuki hain! ✅\n"
-                f"• Sabhi live links aur details aapke bot @Youtube_manager123_bot par post ho gaye hain.\n\n"
-                f"Aap YouTube Studio me live check kar sakte hain! 🚀"
-            )
-        else:
-            await client.send_message(
-                chat_id,
-                f"⚠️ **Suraj sir Notice:** Pipeline batch complete hua. Details @Youtube_manager123_bot par dekhein."
-            )
-    except Exception as e:
-        print(f"[Async Pipeline Error] {e}")
-        await client.send_message(chat_id, f"⚠️ **Execution Notice Suraj sir:** {e}")
-    finally:
-        active_pipeline_state["is_running"] = False
-
-# ==========================================
-# 4. Telethon Client Event Loop
+# 5. Telethon Client Event Loop & Message Routing
 # ==========================================
 async def run_client():
     from telethon import TelegramClient, events
@@ -646,9 +698,8 @@ async def run_client():
 
     while True:
         try:
-            print(f"[Userbot] Connecting Telegram Client (API ID: {API_ID})...")
+            print(f"[Executive Userbot] Connecting client (API ID: {API_ID})...")
             if TELEGRAM_STRING_SESSION:
-                print("[Userbot] Initializing with Cloud StringSession...")
                 client = TelegramClient(StringSession(TELEGRAM_STRING_SESSION), API_ID, API_HASH)
             else:
                 client = TelegramClient(SESSION_PATH, API_ID, API_HASH)
@@ -656,14 +707,12 @@ async def run_client():
             await client.connect()
 
             if not await client.is_user_authorized():
-                print("[Userbot Error] Session not authorized. Please verify login code.")
+                print("[Executive Userbot Error] Session not authorized.")
                 await client.disconnect()
                 return
 
             me = await client.get_me()
-            print(f"[Userbot] Successfully online as: {me.first_name} (ID: {me.id})")
-
-            # Note: Live activity logs & views notifications are strictly directed to @Youtube_manager123_bot!
+            print(f"[Executive Userbot] Online as: {me.first_name} (ID: {me.id})")
 
             @client.on(events.NewMessage)
             async def handler(event):
@@ -687,34 +736,78 @@ async def run_client():
                     return
 
                 lower = text.lower()
-                print(f"[Userbot Received from Suraj sir]: {text}")
+                print(f"[Executive AI Received from Suraj sir]: {text}")
 
                 # ====================================================
-                # ROUTE 1: EXPLICIT ACTION COMMANDS (ACTUAL WORK EXECUTION)
-                # Evaluated FIRST so orders like "sab me video dalo or quota pura karo"
-                # will 100% trigger execution without being intercepted!
+                # ⚡ FAST-PATH 1: URGENT STOP / PAUSE INTENT (NO LLM DELAY)
+                # Evaluated FIRST before any LLM processing to guarantee immediate process kill!
                 # ====================================================
-                is_question = any(q in lower for q in ["kitne", "kitna", "kaise", "kya chal", "status batao", "report do", "check karo", "kya haal"])
-                is_upload_command = (
-                    ("upload" in lower and any(w in lower for w in ["karo", "start", "shuru", "kar do", "chalu", "fast"])) or
-                    ("dalo" in lower and any(w in lower for w in ["video", "clip", "short", "drive", "channel", "sab", "open", "quta", "quota"])) or
-                    ("video" in lower and any(w in lower for w in ["upload", "dalo", "post", "publish", "kar do", "bhejo"])) or
-                    ("clip" in lower and any(w in lower for w in ["upload", "dalo", "post"])) or
-                    any(w in lower for w in ["quota pura karo", "quta pura karo", "sab me video dalo", "sabhi channel pe upload", "sabhi chennl", "upload shuru", "shuru karo", "chalu karo"])
+                is_stop_word = any(w in lower for w in [
+                    "stop", "ruko", "rok do", "band karo", "pause", "rok lo",
+                    "rokna", "abort", "cancel", "stopp", "band kar do"
+                ])
+                if is_stop_word:
+                    matched_ch = match_channel(lower)
+                    is_all = any(w in lower for w in ["sab", "sabhi", "all", "pura", "saare"])
+
+                    if matched_ch and not is_all:
+                        # Specific channel stop
+                        res = stop_channel(matched_ch["channelName"])
+                        reply_msg = (
+                            f"🛑 **Suraj sir, {matched_ch['channelName']} ki uploading turant band kar di hai!**\n\n"
+                            f"• Channel Stop Flag: Set ✅\n"
+                            f"• Process Status: Running tasks abort kar diye gaye hain.\n"
+                            f"• Baaki channels normal chalte rahenge."
+                        )
+                    else:
+                        # Stop ALL uploads (Default for safety if scope is all or unclear)
+                        res = stop_all_uploads()
+                        reply_msg = (
+                            f"🛑 **Suraj sir, SAARE channels ki uploading TURANT band kar di hai!**\n\n"
+                            f"• Global Stop Flag: `STOP_ALL = True` set kar diya hai.\n"
+                            f"• Running Subprocesses: Force kill/terminate kar diye gaye hain.\n"
+                            f"• Sabhi pending upload jobs hold pe daal diye gaye hain.\n\n"
+                            f"Jab tak aap 'resume/chalu karo' nahi bolenge, koi bhi upload start nahi hoga!"
+                        )
+                    await event.reply(reply_msg)
+                    return
+
+                # ====================================================
+                # ⚡ FAST-PATH 2: RESUME / UNPAUSE INTENT
+                # ====================================================
+                is_resume_word = any(w in lower for w in [
+                    "resume", "chalu karo", "start karo", "unpause", "fir se shuru", "upload chalu"
+                ]) and not any(w in lower for w in ["stop", "ruko", "band"])
+                if is_resume_word:
+                    matched_ch = match_channel(lower)
+                    is_all = any(w in lower for w in ["sab", "sabhi", "all", "saare"])
+                    if matched_ch and not is_all:
+                        res = resume_uploads(matched_ch["channelName"])
+                        await event.reply(f"▶️ **Suraj sir, {matched_ch['channelName']} ki uploading resume kar di hai!** Ab ispe upload kiya ja sakta hai.")
+                    else:
+                        res = resume_uploads("all")
+                        await event.reply("▶️ **Suraj sir, sabhi channels par uploading resume kar di hai!** Global STOP flag hata diya gaya hai.")
+                    return
+
+                # ====================================================
+                # 🚀 FAST-PATH 3: ACTION ORDERS (UPLOAD NOW)
+                # Evaluated before general inquiry so explicit orders trigger real tools!
+                # ====================================================
+                is_question = any(q in lower for q in ["kitne", "kitna", "kaise", "kya chal", "status", "report", "check", "batao"])
+                is_upload_order = (
+                    ("upload" in lower and any(w in lower for w in ["karo", "kar do", "start", "shuru", "dalo", "chalu"])) or
+                    ("dalo" in lower and any(w in lower for w in ["video", "clip", "short", "drive", "channel", "quota"])) or
+                    ("quota pura karo" in lower) or
+                    ("video dalo" in lower)
                 ) and not is_question
 
-                if is_upload_command:
-                    # Check if asking specifically for GTA 6 upload
-                    if any(w in lower for w in ["gt6", "gta 6", "gta6", "gta"]) and not any(w in lower for w in ["sab", "all", "open", "baki"]):
-                        await event.reply(
-                            "⚠️ **Suraj sir Notice:** 'GTA6-INDIA' channel par aaj ki 10 videos ki daily YouTube upload limit complete ho chuki hai! "
-                            "Quota kal subah **5:30 AM IST** par reset hoga, jiske baad automated GTA clipping turant upload karegi.\n\n"
-                            "Main abhi baaki open channels (**AGSC CART, D& V fashion, Cinema Nest**) par Google Drive se videos upload kar sakti hoon. "
-                            "Boliye to un par upload batch shuru karun? 🚀"
-                        )
-                        return
+                if is_upload_order:
+                    # Scope check
+                    matched_ch = match_channel(lower)
+                    is_all = any(w in lower for w in ["sab", "sabhi", "all", "saare", "baki", "open"])
 
-                    count = 3
+                    # Parse count if specified
+                    count = 2
                     num_match = re.search(r'(\d+)\s*(?:video|clip|shorts)?', lower)
                     if num_match:
                         try:
@@ -724,85 +817,32 @@ async def run_client():
                         except Exception:
                             pass
 
-                    asyncio.create_task(run_multi_channel_upload_async(client, event.chat_id, count))
-                    return
-
-                # ====================================================
-                # ROUTE 2: STRUCTURED STATUS & QUOTA DATA REPORTS
-                # ====================================================
-                data_keywords = [
-                    "status", "report", "analytics", "stats", "data", "database",
-                    "record", "records", "link", "links", "list", "kya upload",
-                    "dikhao", "update", "kya dala", "batao", "videos", "video"
-                ]
-
-                # Special: AGSC CART Bad Request analysis & diagnosis
-                if any(w in lower for w in ["agsc", "cart"]) and any(w in lower for w in ["bad request", "badrequest", "error", "upload kyu nhi", "upload nahi", "karan", "issue", "fail"]):
-                    network = get_network_overview()
-                    agsc_ch = next((s for s in network.values() if "AGSC" in s.get("title", "").upper() or s.get("channelId") == "UC0ETQHUTkhw1d7Ylu30FbIQ"), None)
-                    err_rep = (
-                        "🔍 **Suraj sir! AGSC CART 'Bad Request' Root Cause & Fix Report:**\n\n"
-                        "1. **Root Cause Analysis:**\n"
-                        "   • AGSC CART channel par aaj **10 videos already successfully upload ho chuki hain!** ✅\n"
-                        "   • YouTube standard/unverified channels par **rolling 24-hour limit** lagata hai (~10 videos/day limit).\n"
-                        "   • Jab 11th video upload karne ki koshish ki gayi, tab YouTube API ne HTTP 400 return kiya: `\"reason\": \"uploadLimitExceeded\"` ('The user has exceeded the number of videos they may upload.').\n\n"
-                        "2. **Fix Implemented:**\n"
-                        "   • Upload pipeline ko upgrade kar diya gaya hai — ab generic 'Bad Request' nahi aayega, balki system `uploadLimitExceeded` ko detect karke safely notify karega ki 24-hour quota 100% full ho chuka hai.\n"
-                        "   • Quota kal subah **5:30 AM IST** par reset hoga aur automated pipeline fresh videos upload karegi!\n\n"
-                        + (format_channel_report(agsc_ch) if agsc_ch else "")
-                    )
-                    await event.reply(err_rep)
-                    return
-
-                # 1. GTA 6 Channel report
-                if any(w in lower for w in ["gt6", "gta 6", "gta6"]) and any(w in lower for w in data_keywords):
-                    network = get_network_overview()
-                    gta_ch = next((s for s in network.values() if "GTA6" in s.get("title", "").upper() or s.get("channelId") == "UCOkeAWVV2ES-p9-75e2QH3A"), None)
-                    if gta_ch:
-                        await event.reply(format_channel_report(gta_ch))
+                    # Rule 8: If scope unclear (neither specific channel nor 'all' mentioned) -> Ask!
+                    if not matched_ch and not is_all:
+                        await event.reply("Suraj sir, kaun sa channel, ya sabhi channels pe upload karun?")
                         return
 
-                # 2. Specific single channel report / database data
-                if any(w in lower for w in ["agsc", "cart", "fashion", "d&v", "cinema", "nest"]) and any(w in lower for w in data_keywords):
-                    network = get_network_overview()
-                    for ch_id, ch_stats in network.items():
-                        title_upper = ch_stats.get("title", "").upper()
-                        if ("AGSC" in title_upper and ("agsc" in lower or "cart" in lower)) or \
-                           ("FASHION" in title_upper and ("fashion" in lower or "d&v" in lower)) or \
-                           ("CINEMA" in title_upper and ("cinema" in lower or "nest" in lower)):
-                            await event.reply(format_channel_report(ch_stats))
-                            return
+                    target_scope = matched_ch["channelName"] if matched_ch and not is_all else "all"
+                    tool_res = upload_now(channel=target_scope, count=count)
 
-                # 3. Dedicated Quota & Upload Capacity Query
-                if any(w in lower for w in ["kitne video or upload", "kitne video aur upload", "kitna upload baki", "kitne baki", "used quota", "kitne upload kar sakte", "capacity", "quota batao"]):
-                    network = get_network_overview()
-                    await event.reply(format_quota_and_capacity_report(network))
-                    return
-
-                # 4. Full Network Database Data Report (All Channels & Video Links)
-                if any(w in lower for w in ["database", "database se data", "database ka data", "sare channel ka data", "all channel data", "sab channels ka data", "kya kya upload hua", "uploaded video", "uploaded videos", "sabhi videos", "links do", "link do", "pura data", "sare links"]) or lower in ["data", "db data", "/data"]:
-                    await event.reply(format_all_channels_database_report())
-                    return
-
-                # 5. Network Status / Overview
-                if lower in ["/status", "status", "network status", "all channel status", "report", "analytics"]:
-                    network = get_network_overview()
-                    await event.reply(format_network_overview_report(network))
+                    # Generate dynamic, intelligent Hinglish explanation of action taken
+                    context_note = f"Action: upload_now(channel='{target_scope}', count={count}) | Result: {tool_res}"
+                    reply_text = query_executive_llm(text, tool_result_context=context_note)
+                    await event.reply(reply_text)
                     return
 
                 # ====================================================
-                # ROUTE 3: FULL AI MIND & GAMING STRATEGIST (LLM)
-                # Handles all discussions, gaming trends, GTA 6 theories, BeamNG stunts, viral strategies!
+                # 🧠 GENERAL ROUTE: EMPOWERED EXECUTIVE LLM (ZERO CANNED REPLIES)
+                # All status queries, data requests, strategy, and casual discussions
                 # ====================================================
-                reply_text = query_ai_llm(text)
-                print(f"[Userbot Sent to Suraj sir]: {reply_text}")
+                reply_text = query_executive_llm(text)
                 await event.reply(reply_text)
 
-            print("[Userbot] 24/7 AI Manager online for Suraj sir!")
+            print("[Executive Userbot] Ready and listening for Suraj sir!")
             await client.run_until_disconnected()
 
         except Exception as err:
-            print(f"[Userbot Error / Disconnected]: {err}")
+            print(f"[Executive Userbot Error / Disconnected]: {err}")
             traceback.print_exc()
             await asyncio.sleep(5)
 

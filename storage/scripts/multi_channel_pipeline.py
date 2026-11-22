@@ -100,6 +100,55 @@ def get_uploaded_drive_file_ids() -> set:
         pass
     return set()
 
+def check_stop_flag(channel_id: str = None) -> bool:
+    """Check Firebase RTDB for global STOP_ALL or channel-specific stop flag"""
+    try:
+        url = f"{FIREBASE_URL}/system_control/stop_flags.json"
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=5) as res:
+            data = json.loads(res.read().decode("utf-8") or "{}")
+            if data.get("STOP_ALL", False):
+                return True
+            if channel_id:
+                ch_flags = data.get("channels", {})
+                if ch_flags.get(channel_id, False):
+                    return True
+    except Exception as e:
+        print(f"[Stop Flag Check Notice] {e}")
+    return False
+
+def record_channel_quota_exhausted(channel_id: str, channel_name: str, reason: str = "uploadLimitExceeded"):
+    """Mark channel quota as exhausted in Firebase RTDB until 5:30 AM IST (00:00 UTC)"""
+    try:
+        url = f"{FIREBASE_URL}/system_control/quota_status/{channel_id}.json"
+        payload = {
+            "channelId": channel_id,
+            "channelName": channel_name,
+            "quota_exhausted": True,
+            "exhausted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "reset_at": "00:00 UTC (05:30 AM IST)",
+            "reason": reason
+        }
+        req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"}, method="PUT")
+        urllib.request.urlopen(req, timeout=8)
+    except Exception as e:
+        print(f"[Quota Record Notice] {e}")
+
+def is_channel_quota_exhausted(channel_id: str) -> bool:
+    """Check if channel was recorded as quota exhausted today"""
+    try:
+        url = f"{FIREBASE_URL}/system_control/quota_status/{channel_id}.json"
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=5) as res:
+            data = json.loads(res.read().decode("utf-8") or "{}")
+            if data.get("quota_exhausted"):
+                today_str = time.strftime("%Y-%m-%d", time.gmtime())
+                if data.get("exhausted_at", "").startswith(today_str):
+                    return True
+    except Exception:
+        pass
+    return False
+
 def record_uploaded_file(file_id: str, file_name: str, channel_id: str, channel_name: str, video_id: str, title: str):
     """Mark file as uploaded in Firebase RTDB"""
     try:
@@ -225,9 +274,15 @@ def upload_to_youtube(video_path: str, title: str, access_token: str, max_retrie
 
     raise last_err or Exception("Upload failed after retries")
 
-def run_pipeline(videos_per_channel: int = 1):
-    """Main execution orchestrator for multi-channel Google Drive uploads"""
+def run_pipeline(videos_per_channel: int = 1, target_channel: str = None):
+    """Main execution orchestrator for multi-channel Google Drive uploads with stop flag and quota checks"""
     print("=== Multi-Channel 5,000 Video Google Drive Pipeline Starting ===")
+
+    # 0. Global STOP Flag Pre-Check
+    if check_stop_flag():
+        print("[ABORT] Global STOP flag is set in Firebase. Uploads cannot start.")
+        send_telegram("🛑 *Upload Notice:* Upload request aborted because STOP flag is currently ACTIVE.")
+        return
 
     # 1. Fetch Drive configuration
     try:
@@ -254,19 +309,27 @@ def run_pipeline(videos_per_channel: int = 1):
         send_telegram(f"❌ *Channels Error:* Could not read channels from Firebase: {e}")
         return
 
-    # Filter channels: Skip GTA6-INDIA as requested by Suraj sir (quota completed today)
+    # Filter channels: Skip GTA6-INDIA (dedicated pipeline) or match target channel
     target_channels = []
     for ch_id, ch_info in all_channels.items():
         ch_name = ch_info.get("channelName", "")
-        # Suraj sir: "suno gt6 wale me aaja ka complte ho gya he quta ok to baki ke chennl par drive wale video upload karo"
         if "GTA6" in ch_name.upper() or ch_id == "UCOkeAWVV2ES-p9-75e2QH3A":
-            print(f"Skipping {ch_name} ({ch_id}) - Quota completed today.")
-            continue
+            # If user explicitly asked for GTA6 in target_channel, allow, else skip in Drive batch
+            if not (target_channel and ("gta" in target_channel.lower() or "gt6" in target_channel.lower())):
+                continue
         if ch_info.get("refreshToken"):
             target_channels.append(ch_info)
 
+    # Scope filtering: Specific channel vs All channels
+    if target_channel and target_channel.strip().lower() not in ["all", "sab", "sabhi", ""]:
+        filt = target_channel.strip().lower()
+        target_channels = [
+            c for c in target_channels 
+            if filt in c.get("channelName", "").lower() or filt in c.get("channelId", "").lower()
+        ]
+
     if not target_channels:
-        send_telegram("⚠️ *Notice:* No active target channels found for Drive uploads.")
+        send_telegram(f"⚠️ *Notice:* No active target channels found matching scope '{target_channel or 'all'}'.")
         return
 
     print(f"Targeting {len(target_channels)} channels for Drive uploads: {[c.get('channelName') for c in target_channels]}")
@@ -291,9 +354,27 @@ def run_pipeline(videos_per_channel: int = 1):
         ch_id = ch.get("channelId")
         ch_refresh = ch.get("refreshToken")
 
+        # Check Stop Flag before starting channel
+        if check_stop_flag(ch_id):
+            print(f"[{ch_name}] STOP flag active for this channel or globally. Skipping.")
+            send_telegram(f"🛑 *[{ch_name}] Uploading Skipped:* Stop flag active for this channel.")
+            continue
+
+        # Check Quota status before starting channel
+        if is_channel_quota_exhausted(ch_id):
+            print(f"[{ch_name}] Quota already marked exhausted today. Skipping.")
+            send_telegram(f"⏳ *[{ch_name}] Quota Notice:* Daily upload limit already reached today. Resets at 5:30 AM IST.")
+            continue
+
         print(f"\n--- Processing Channel: {ch_name} ({ch_id}) ---")
 
         for i in range(videos_per_channel):
+            # Check Stop Flag before each video
+            if check_stop_flag(ch_id):
+                print(f"[{ch_name}] STOP flag detected before video {i+1}. Aborting immediately!")
+                send_telegram(f"🛑 *[{ch_name}] Uploading Aborted by Owner Order!* Process stopped.")
+                break
+
             if file_index >= len(available_files):
                 print("No more available files in batch.")
                 break
@@ -309,6 +390,8 @@ def run_pipeline(videos_per_channel: int = 1):
 
             try:
                 # Step 1: Download
+                if check_stop_flag(ch_id):
+                    break
                 print(f"[{ch_name}] Downloading {file_name} from Drive...")
                 send_telegram(
                     f"📥 *[{ch_name}] Step 1/3: Downloading*\n"
@@ -318,6 +401,8 @@ def run_pipeline(videos_per_channel: int = 1):
                 download_drive_video(file_id, temp_raw, drive_token)
 
                 # Step 2: Edit
+                if check_stop_flag(ch_id):
+                    break
                 print(f"[{ch_name}] Editing video (9:16 vertical crop, audio tuning, no watermark)...")
                 send_telegram(
                     f"🎬 *[{ch_name}] Step 2/3: Editing Video*\n"
@@ -329,6 +414,8 @@ def run_pipeline(videos_per_channel: int = 1):
                 upload_file = temp_edited if edit_ok else temp_raw
 
                 # Step 3: Upload
+                if check_stop_flag(ch_id):
+                    break
                 print(f"[{ch_name}] Uploading to YouTube...")
                 send_telegram(
                     f"🚀 *[{ch_name}] Step 3/3: Uploading to YouTube*\n"
@@ -350,19 +437,21 @@ def run_pipeline(videos_per_channel: int = 1):
                     f"📊 *Status:* Public Short Active"
                 )
 
-                # Record in Firebase
+                # Record in Firebase only upon actual success
                 record_uploaded_file(file_id, file_name, ch_id, ch_name, yt_video_id, raw_title)
                 total_uploaded += 1
 
             except Exception as ex:
                 err_msg = str(ex)
-                if "DAILY_UPLOAD_LIMIT_EXCEEDED" in err_msg:
+                if "DAILY_UPLOAD_LIMIT_EXCEEDED" in err_msg or "uploadLimitExceeded" in err_msg:
                     print(f"[{ch_name}] YouTube daily upload limit reached (uploadLimitExceeded).")
+                    record_channel_quota_exhausted(ch_id, ch_name, "uploadLimitExceeded")
                     send_telegram(
-                        f"🛑 *[{ch_name}] Daily Upload Limit Reached!* ✅\n\n"
+                        f"🛑 *[{ch_name}] Daily Upload Limit / Quota Exhausted!* ✅\n\n"
                         f"• Is channel par aaj ki maximum daily upload limit complete ho chuki hai!\n"
                         f"• YouTube Data API ne 24-hour limit lock kar di hai (`uploadLimitExceeded`).\n"
-                        f"• Aaj is channel par sabhi videos successfully post ho chuki hain. Quota kal subah 5:30 AM IST par reset hoga!"
+                        f"• Channel ko auto-pause kar diya gaya hai. Quota kal subah 5:30 AM IST par reset hoga!\n"
+                        f"• Jo videos upload nahi hue hain, wo safe hain aur kal automatically upload honge."
                     )
                     break
                 else:
@@ -377,18 +466,27 @@ def run_pipeline(videos_per_channel: int = 1):
                         except Exception:
                             pass
 
-            # Small delay between uploads
+            if check_stop_flag(ch_id):
+                print(f"[{ch_name}] Stop flag detected after upload. Halting.")
+                break
+
+            # Delay between uploads
             time.sleep(4)
 
+        if check_stop_flag():
+            print("[STOP] Pipeline terminated across all channels by owner order.")
+            break
+
     send_telegram(
-        f"🏁 *Multi-Channel Upload Batch Complete!* 🚀\n\n"
+        f"🏁 *Multi-Channel Upload Batch Finished!* 🚀\n\n"
         f"• Total Videos Uploaded: *{total_uploaded}*\n"
-        f"• Channels Updated: *{len(target_channels)}*\n"
+        f"• Scope: *{target_channel or 'All Open Channels'}*\n"
         f"• Source: 5,000+ BeamNG Google Drive Bundle\n"
-        f"• All temporary files wiped (Zero-Storage Policy)"
+        f"• Zero-Storage Policy Enforced"
     )
     print("=== Pipeline Execution Finished Successfully ===")
 
 if __name__ == "__main__":
     count = int(sys.argv[1]) if len(sys.argv) > 1 else 1
-    run_pipeline(videos_per_channel=count)
+    target = sys.argv[2] if len(sys.argv) > 2 else None
+    run_pipeline(videos_per_channel=count, target_channel=target)

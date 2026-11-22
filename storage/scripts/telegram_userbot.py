@@ -359,27 +359,33 @@ def get_system_prompt() -> str:
     net_str = "\n".join(lines)
 
     return (
-        "You are Suraj sir's authoritative, highly intelligent, loyal AI Executive Manager & Operations Director managing his 4-channel YouTube media network.\n"
+        "You are Suraj sir's authoritative, visionary, highly intelligent AI Executive Director & Creative YouTube Operations Partner.\n"
         "Suraj sir (@Surajpatel223, Telegram ID: 9052978168) is your creator, boss, and sole owner. You report exclusively to Suraj sir.\n\n"
         "=== YOUR MULTI-CHANNEL NETWORK (REAL-TIME CONTEXT & QUOTA) ===\n"
         f"{net_str}\n\n"
         f"• SUMMARY TODAY: {len(open_channels)} channels open ({', '.join(open_channels) if open_channels else 'None'}). "
         f"Total remaining upload capacity today = {total_rem} videos across network! Already published today = {total_used} videos.\n"
-        "• Channel 1: 'GTA6-INDIA' (GTA 5/6 viral stunts & community highlights). Today's upload quota (10/10) is COMPLETE (0 remaining today). Quota resets daily at 5:30 AM IST.\n"
+        "• Channel 1: 'GTA6-INDIA' (GTA 5/6 viral stunts & community highlights). Today's upload quota (10/10) is COMPLETE. Quota resets daily at 5:30 AM IST.\n"
         "• Channel 2: 'AGSC CART' (5,000 BeamNG Crash Clips bundle, active uploads).\n"
         "• Channel 3: 'D& V fashion' (5,000 BeamNG Crash Clips bundle, active uploads).\n"
         "• Channel 4: 'Cinema Nest' (5,000 BeamNG Crash Clips bundle, active uploads).\n"
         "• Video Source: Google Drive folder '5000+ Beam Ng Crash Clips Bundle' (Folder ID: 1BEUAM2fnKo6drhy6P42mrM6sBTNWqWbV).\n\n"
-        "=== CRITICAL BEHAVIORAL LAWS ===\n"
-        "1. ACCURATE INTENT & QUOTA UNDERSTANDING:\n"
-        "   - When Suraj sir asks for status, reports, or quota ('kitne channel par kitne video or upload kar sakte he', 'quota batao', 'status batao', 'views batao'), ALWAYS tell him the exact Used Quota (e.g. X/10) and Remaining Upload Capacity for that channel or across all open channels!\n"
-        "   - NEVER trigger video uploads when asked for status or quota! Answer directly, smartly, and with real data!\n"
-        "   - ONLY trigger uploads when he explicitly gives an upload command (e.g. 'video upload karo', 'dalo video', 'upload shuru karo').\n"
-        "2. ABSOLUTE CONFIDENCE & AUTHORITY:\n"
-        "   - NEVER say 'Main sirf ek AI hoon', 'Mere paas access nahi hai', or make excuses. You HAVE full access to all 4 channels, YouTube Data API, Firebase RTDB, Google Drive, and Cloud Renderers.\n"
-        "   - ALWAYS address him respectfully as 'Suraj sir' (never 'bhai' or casual names).\n"
-        "   - Speak in confident, sharp, respectful Hindi / Hinglish.\n"
-        "   - Keep answers clear, structured, and actionable.\n"
+        "=== YOUR EXPERTISE & GAMING TRENDS MASTERY (2026) ===\n"
+        "1. GAMING INDUSTRY & VIRAL CONTENT DIRECTOR:\n"
+        "   - You are a gaming culture prodigy. You know everything trending in GTA 6, GTA 5, BeamNG.drive, Minecraft, and Indian/Global gaming.\n"
+        "   - GTA 6 Mastery: Vice City, Leonida state, Lucia & Jason duo story, next-gen water and car deformation physics, weapon mechanics, leaks, expected trailer drops. You brainstorm thrilling Shorts ideas combining leaks, theories, and gameplay stunts.\n"
+        "   - GTA 5 & FiveM: Impossible mega-ramp jumps, 5-star police escapes, superhero mod battles, funny ragdoll physics, car vs train.\n"
+        "   - BeamNG.drive Mastery: Extreme soft-body crash simulations, speed bumps at 300 km/h, suspension stress tests, bridge collapses, hydraulic press crushing, flying cars off cliffs. Highly addictive, satisfying destruction ASMR.\n"
+        "   - YouTube Shorts Algorithm 2026:\n"
+        "     • Hook in 0.5 - 1.5 seconds: High visual motion, loud impact, curious question overlay ('CAN THIS SURVIVE?').\n"
+        "     • Average View Duration (AVD) > 100% via seamless audio and visual looping.\n"
+        "     • Sound Design: Trending Phonk beats, bass-boosted impact hits.\n"
+        "     • Click-Through & Retention: Curiosity-inducing titles and suspenseful cuts.\n\n"
+        "2. CONVERSATIONAL TONE & BEHAVIOR:\n"
+        "   - Always address him respectfully as 'Suraj sir'.\n"
+        "   - Speak in confident, sharp, thoughtful, and visionary Hindi / Hinglish.\n"
+        "   - NO robotic canned templates. Have real, engaging, mastermind discussions about gaming trends, video ideas, channel growth, and strategy.\n"
+        "   - When Suraj sir asks about trends or ideas, give exciting, creative, actionable advice to help him dominate YouTube Gaming!\n"
         "======================================\n"
     )
 
@@ -454,7 +460,7 @@ def query_ai_llm(user_message: str) -> str:
 # 3. Async Background Execution of Upload Pipelines
 # ==========================================
 async def run_multi_channel_upload_async(client, chat_id, count_per_channel: int = 3):
-    """Run Drive upload pipeline across active channels asynchronously"""
+    """Run Drive upload pipeline across active channels asynchronously with clean personal chat"""
     global active_pipeline_state
 
     if active_pipeline_state["is_running"]:
@@ -462,7 +468,7 @@ async def run_multi_channel_upload_async(client, chat_id, count_per_channel: int
             chat_id,
             f"⚡ **Suraj sir! Ek upload automation batch pehle se background me chal raha hai!**\n\n"
             f"• Action: **{active_pipeline_state['action']}**\n"
-            f"• Video download, 9:16 crop & YouTube upload chal raha hai. Bot par live step logs aa rahe hain! ⏳🔥"
+            f"• Video download, 9:16 crop & YouTube upload chal raha hai. Sare live step logs aapke official bot @Youtube_manager123_bot par aa rahe hain! ⏳🔥"
         )
         return
 
@@ -471,12 +477,11 @@ async def run_multi_channel_upload_async(client, chat_id, count_per_channel: int
     active_pipeline_state["start_time"] = time.time()
 
     confirm_msg = (
-        f"🎬 **Suraj sir! Multi-Channel Google Drive Upload Automation Shuru Kar Di Hai!**\n\n"
+        f"🎬 **Ji Suraj sir! Sabhi open channels par quota fill karne ke liye upload process shuru kar di hai!** 🚀\n\n"
         f"• Target Channels: **AGSC CART, D& V fashion, Cinema Nest**\n"
-        f"• Clips Per Channel: **{count_per_channel} Videos**\n"
         f"• Source: Google Drive (5,000 BeamNG Clips Bundle)\n"
-        f"• Settings: 9:16 Vertical Crop, Anti-Content-ID Audio, Zero Watermark\n\n"
-        f"Background me execution start ho gaya hai. Har step ka live log @Youtube_manager123_bot par aayega! ⏳🚀"
+        f"• Watermark: None (Channel Name Skipped per order)\n\n"
+        f"Sare live step-by-step logs aur YouTube video links aapke official bot **@Youtube_manager123_bot** par deliver ho rahe hain!"
     )
     await client.send_message(chat_id, confirm_msg)
 
@@ -484,21 +489,21 @@ async def run_multi_channel_upload_async(client, chat_id, count_per_channel: int
         pipeline_script = os.path.abspath(os.path.join(os.path.dirname(__file__), "multi_channel_pipeline.py"))
         cmd = [sys.executable, pipeline_script, str(count_per_channel)]
 
-        res = await asyncio.to_thread(subprocess.run, cmd, capture_output=True, text=True, timeout=1200)
+        res = await asyncio.to_thread(subprocess.run, cmd, capture_output=True, text=True, timeout=1800)
         print("[Multi-Channel Pipeline Result]:", res.stdout[-400:])
 
         if res.returncode == 0:
             await client.send_message(
                 chat_id,
-                f"🏆 **Suraj sir! Multi-Channel Video Upload Batch Successfully Complete Ho Gaya Hai!**\n\n"
+                f"🏆 **Suraj sir! Upload batch successfully complete ho gaya hai!**\n\n"
                 f"• AGSC CART, D& V fashion, aur Cinema Nest par nayi videos publish ho chuki hain! ✅\n"
-                f"• Saari temporary files clean kar di gayi hain (Zero-Storage).\n\n"
-                f"Aap YouTube Studio me live check kar sakte hain!"
+                f"• Sabhi live links aur details aapke bot @Youtube_manager123_bot par post ho gaye hain.\n\n"
+                f"Aap YouTube Studio me live check kar sakte hain! 🚀"
             )
         else:
             await client.send_message(
                 chat_id,
-                f"⚠️ **Suraj sir Notice:** Pipeline batch complete hua.\nLogs:\n`{res.stderr[-200:]}`"
+                f"⚠️ **Suraj sir Notice:** Pipeline batch complete hua. Details @Youtube_manager123_bot par dekhein."
             )
     except Exception as e:
         print(f"[Async Pipeline Error] {e}")
@@ -507,61 +512,7 @@ async def run_multi_channel_upload_async(client, chat_id, count_per_channel: int
         active_pipeline_state["is_running"] = False
 
 # ==========================================
-# 4. Live Multi-Channel Views & Activity Tracker
-# ==========================================
-async def network_views_tracker(client, suraj_entity):
-    """Monitors live views & subscriber changes across all 4 channels every 75s"""
-    global last_stats_state
-    await asyncio.sleep(25)
-
-    while True:
-        try:
-            network = get_network_overview()
-
-            for ch_id, stats in network.items():
-                ch_title = stats.get("title", "Channel")
-                current_subs = stats.get("subscribers", 0)
-                recent_vids = stats.get("recentUploads", [])
-
-                # Track Subscribers
-                prev_subs = last_stats_state["subscribers"].get(ch_id)
-                if prev_subs is not None and current_subs > prev_subs:
-                    diff = current_subs - prev_subs
-                    alert = (
-                        f"🎉 **Badhai ho Suraj sir! Naya Subscriber!**\n\n"
-                        f"• Channel: **{ch_title}**\n"
-                        f"• +{diff} naya subscriber jud gaya!\n"
-                        f"• Total Channel Subscribers: **{current_subs}** 🚀"
-                    )
-                    await client.send_message(suraj_entity, alert)
-                last_stats_state["subscribers"][ch_id] = current_subs
-
-                # Track Views per video
-                for vid in recent_vids:
-                    v_id = vid.get("id")
-                    v_title = vid.get("title", "Video")
-                    current_views = vid.get("views", 0)
-
-                    prev_views = last_stats_state["video_views"].get(v_id)
-                    if prev_views is not None and current_views > prev_views:
-                        v_diff = current_views - prev_views
-                        alert = (
-                            f"📈 **Live View Update Suraj sir!**\n\n"
-                            f"• Channel: **{ch_title}**\n"
-                            f"• Video: **\"{v_title[:40]}\"**\n"
-                            f"• +{v_diff} naye views aaye! (Total: **{current_views}** views) 👁️🔥\n"
-                            f"• Link: https://youtu.be/{v_id}"
-                        )
-                        await client.send_message(suraj_entity, alert)
-                    last_stats_state["video_views"][v_id] = current_views
-
-        except Exception as e:
-            print(f"[Views Tracker Error] {e}")
-
-        await asyncio.sleep(75)
-
-# ==========================================
-# 5. Telethon Client Event Loop
+# 4. Telethon Client Event Loop
 # ==========================================
 async def run_client():
     from telethon import TelegramClient, events
@@ -586,12 +537,7 @@ async def run_client():
             me = await client.get_me()
             print(f"[Userbot] Successfully online as: {me.first_name} (ID: {me.id})")
 
-            try:
-                suraj_entity = await client.get_entity(CREATOR_USERNAME)
-            except Exception:
-                suraj_entity = CREATOR_ID
-
-            asyncio.create_task(network_views_tracker(client, suraj_entity))
+            # Note: Live activity logs & views notifications are strictly directed to @Youtube_manager123_bot!
 
             @client.on(events.NewMessage)
             async def handler(event):
@@ -618,102 +564,30 @@ async def run_client():
                 print(f"[Userbot Received from Suraj sir]: {text}")
 
                 # ====================================================
-                # ROUTE 1: STATUS, REPORTS & ANALYTICS QUESTIONS
-                # (Priority over upload commands so asking about status NEVER uploads!)
+                # ROUTE 1: EXPLICIT ACTION COMMANDS (ACTUAL WORK EXECUTION)
+                # Evaluated FIRST so orders like "sab me video dalo or quota pura karo"
+                # will 100% trigger execution without being intercepted!
                 # ====================================================
-                is_status_question = any(w in lower for w in [
-                    "status", "report", "analytics", "batao", "kya chal raha", "kaisa chal",
-                    "views", "subscribers", "kitne video", "kitna upload", "kya haal",
-                    "performance", "check karo", "summary", "stats", "quota", "capacity",
-                    "kitne channel", "baki", "used", "upload kar sakte"
-                ])
-
-                if is_status_question:
-                    # Check which channel Suraj sir is asking about
-                    network = get_network_overview()
-
-                    # 1. GTA 6 Channel
-                    if any(w in lower for w in ["gt6", "gta 6", "gta6", "gta"]):
-                        gta_ch = next((s for s in network.values() if "GTA6" in s.get("title", "").upper() or s.get("channelId") == "UCOkeAWVV2ES-p9-75e2QH3A"), None)
-                        if gta_ch:
-                            await event.reply(format_channel_report(gta_ch))
-                        else:
-                            await event.reply(
-                                "📊 **Suraj sir! GTA6-INDIA Channel Report:**\n\n"
-                                "• Channel: **GTA6-INDIA** (`UCOkeAWVV2ES-p9-75e2QH3A`)\n"
-                                "• Total Uploaded Videos: **10 Videos** (EXACT)\n"
-                                "• Today's Uploads: **10 / 10 Complete** (Used Quota Full)\n"
-                                "• Remaining Today: **0 Videos**\n"
-                                "• Next Auto Batch: Kal subah **5:30 AM IST (00:00 UTC)** quota reset ke baad live GTA clipping resume hogi! 🚀"
-                            )
-                        return
-
-                    # 2. AGSC CART
-                    if any(w in lower for w in ["agsc", "cart"]):
-                        agsc_ch = next((s for s in network.values() if "AGSC" in s.get("title", "").upper() or s.get("channelId") == "UC0ETQHUTkhw1d7Ylu30FbIQ"), None)
-                        if agsc_ch:
-                            await event.reply(format_channel_report(agsc_ch))
-                        else:
-                            await event.reply("Suraj sir, AGSC CART channel se data load ho raha hai, ek pal rukiye.")
-                        return
-
-                    # 3. D& V fashion
-                    if any(w in lower for w in ["fashion", "d&v", "d & v", "d and v"]):
-                        fash_ch = next((s for s in network.values() if "FASHION" in s.get("title", "").upper() or s.get("channelId") == "UCKJcMheLl_FJWeEWaz073MQ"), None)
-                        if fash_ch:
-                            await event.reply(format_channel_report(fash_ch))
-                        else:
-                            await event.reply("Suraj sir, D& V fashion channel se data load ho raha hai, ek pal rukiye.")
-                        return
-
-                    # 4. Cinema Nest
-                    if any(w in lower for w in ["cinema", "nest"]):
-                        cine_ch = next((s for s in network.values() if "CINEMA" in s.get("title", "").upper() or s.get("channelId") == "UCkJXq3gCfROIFW4UEK4A8Pg"), None)
-                        if cine_ch:
-                            await event.reply(format_channel_report(cine_ch))
-                        else:
-                            await event.reply("Suraj sir, Cinema Nest channel se data load ho raha hai, ek pal rukiye.")
-                        return
-
-                    # 5. Dedicated Quota & Upload Capacity Query
-                    is_capacity_query = any(w in lower for w in [
-                        "kitne video or upload", "kitne video aur upload", "kitne video upload kar",
-                        "kitne channel par", "kitna upload baki", "kitne baki", "quota", "capacity",
-                        "used quota", "kitne upload kar sakte", "kitne aur video", "or upload kar sakte",
-                        "kitne videos or upload"
-                    ])
-                    if is_capacity_query:
-                        await event.reply(format_quota_and_capacity_report(network))
-                        return
-
-                    # 6. General / Multi-Channel Overview
-                    await event.reply(format_network_overview_report(network))
-                    return
-
-                # ====================================================
-                # ROUTE 2: EXPLICIT UPLOAD COMMANDS ONLY
-                # (Triggers only when user actually says to upload/dalo!)
-                # ====================================================
-                is_explicit_upload = (
+                is_question = any(q in lower for q in ["kitne", "kitna", "kaise", "kya chal", "status batao", "report do", "check karo", "kya haal"])
+                is_upload_command = (
                     ("upload" in lower and any(w in lower for w in ["karo", "start", "shuru", "kar do", "chalu", "fast"])) or
-                    ("dalo" in lower and any(w in lower for w in ["video", "clip", "short", "drive", "channel"])) or
-                    ("video" in lower and any(w in lower for w in ["upload", "dalo", "post karo", "publish karo"])) or
-                    ("clip" in lower and any(w in lower for w in ["upload karo", "dalo", "post karo"])) or
-                    ("shuru karo" in lower)
-                )
+                    ("dalo" in lower and any(w in lower for w in ["video", "clip", "short", "drive", "channel", "sab", "open", "quta", "quota"])) or
+                    ("video" in lower and any(w in lower for w in ["upload", "dalo", "post", "publish", "kar do", "bhejo"])) or
+                    ("clip" in lower and any(w in lower for w in ["upload", "dalo", "post"])) or
+                    any(w in lower for w in ["quota pura karo", "quta pura karo", "sab me video dalo", "sabhi channel pe upload", "sabhi chennl", "upload shuru", "shuru karo", "chalu karo"])
+                ) and not is_question
 
-                if is_explicit_upload:
+                if is_upload_command:
                     # Check if asking specifically for GTA 6 upload
-                    if any(w in lower for w in ["gt6", "gta 6", "gta6", "gta"]):
+                    if any(w in lower for w in ["gt6", "gta 6", "gta6", "gta"]) and not any(w in lower for w in ["sab", "all", "open", "baki"]):
                         await event.reply(
                             "⚠️ **Suraj sir Notice:** 'GTA6-INDIA' channel par aaj ki 10 videos ki daily YouTube upload limit complete ho chuki hai! "
                             "Quota kal subah **5:30 AM IST** par reset hoga, jiske baad automated GTA clipping turant upload karegi.\n\n"
-                            "Main abhi baaki channels (**AGSC CART, D& V fashion, Cinema Nest**) par Google Drive se videos upload kar sakti hoon. "
-                            "Kya un par batch upload shuru karun?"
+                            "Main abhi baaki open channels (**AGSC CART, D& V fashion, Cinema Nest**) par Google Drive se videos upload kar sakti hoon. "
+                            "Boliye to un par upload batch shuru karun? 🚀"
                         )
                         return
 
-                    # Otherwise, upload Drive videos across active channels
                     count = 3
                     num_match = re.search(r'(\d+)\s*(?:video|clip|shorts)?', lower)
                     if num_match:
@@ -728,7 +602,42 @@ async def run_client():
                     return
 
                 # ====================================================
-                # ROUTE 3: INTELLIGENT AI EXECUTIVE ADVISOR (LLM)
+                # ROUTE 2: STRUCTURED STATUS & QUOTA DATA REPORTS
+                # ====================================================
+                # 1. GTA 6 Channel report
+                if any(w in lower for w in ["gt6", "gta 6", "gta6"]) and any(w in lower for w in ["status", "report", "analytics", "stats"]):
+                    network = get_network_overview()
+                    gta_ch = next((s for s in network.values() if "GTA6" in s.get("title", "").upper() or s.get("channelId") == "UCOkeAWVV2ES-p9-75e2QH3A"), None)
+                    if gta_ch:
+                        await event.reply(format_channel_report(gta_ch))
+                        return
+
+                # 2. Specific single channel report
+                if any(w in lower for w in ["agsc", "cart", "fashion", "d&v", "cinema", "nest"]) and any(w in lower for w in ["status", "report", "analytics", "stats"]):
+                    network = get_network_overview()
+                    for ch_id, ch_stats in network.items():
+                        title_upper = ch_stats.get("title", "").upper()
+                        if ("AGSC" in title_upper and ("agsc" in lower or "cart" in lower)) or \
+                           ("FASHION" in title_upper and ("fashion" in lower or "d&v" in lower)) or \
+                           ("CINEMA" in title_upper and ("cinema" in lower or "nest" in lower)):
+                            await event.reply(format_channel_report(ch_stats))
+                            return
+
+                # 3. Dedicated Quota & Upload Capacity Query
+                if any(w in lower for w in ["kitne video or upload", "kitne video aur upload", "kitna upload baki", "kitne baki", "used quota", "kitne upload kar sakte", "capacity", "quota batao"]):
+                    network = get_network_overview()
+                    await event.reply(format_quota_and_capacity_report(network))
+                    return
+
+                # 4. Network Status / Overview
+                if lower in ["/status", "status", "network status", "all channel status", "report", "analytics"]:
+                    network = get_network_overview()
+                    await event.reply(format_network_overview_report(network))
+                    return
+
+                # ====================================================
+                # ROUTE 3: FULL AI MIND & GAMING STRATEGIST (LLM)
+                # Handles all discussions, gaming trends, GTA 6 theories, BeamNG stunts, viral strategies!
                 # ====================================================
                 reply_text = query_ai_llm(text)
                 print(f"[Userbot Sent to Suraj sir]: {reply_text}")

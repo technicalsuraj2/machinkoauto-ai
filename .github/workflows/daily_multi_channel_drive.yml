@@ -2,20 +2,20 @@ name: 24/7 Multi-Channel Google Drive Pipeline
 
 on:
   schedule:
-    # Runs automatically every day at 01:00 UTC (6:30 AM IST)
-    - cron: '0 1 * * *'
+    # Runs automatically every day at 00:30 UTC (6:00 AM IST)
+    - cron: '30 0 * * *'
   workflow_dispatch:
     inputs:
       videos_per_channel:
         description: 'Number of Drive clips to upload per channel'
         required: true
-        default: '5'
+        default: '10'
 
 jobs:
   run-drive-pipeline:
     name: Multi-Channel 5,000 Drive Pipeline
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
 
     steps:
       - name: Checkout Repository
@@ -43,4 +43,4 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CREATOR_ID: ${{ secrets.TELEGRAM_CREATOR_ID }}
         run: |
-          python -u storage/scripts/multi_channel_pipeline.py ${{ github.event.inputs.videos_per_channel || 5 }}
+          python -u storage/scripts/multi_channel_pipeline.py ${{ github.event.inputs.videos_per_channel || 10 }}

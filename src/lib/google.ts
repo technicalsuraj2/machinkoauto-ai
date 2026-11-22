@@ -108,11 +108,14 @@ export async function handleOAuthCallback(
     ? encryptToken(tokens.refresh_token)
     : undefined;
 
+  // Use channelId in provider key for multiple YouTube channels support
+  const providerKey = (provider === "youtube" && channelId) ? `youtube_${channelId}` : provider;
+
   const connection = await prisma.connection.upsert({
     where: {
       userId_provider: {
         userId,
-        provider,
+        provider: providerKey,
       },
     },
     update: {
@@ -124,13 +127,47 @@ export async function handleOAuthCallback(
     },
     create: {
       userId,
-      provider,
+      provider: providerKey,
       encryptedRefreshToken: encryptedRefreshToken || "",
       channelName,
       channelId,
       status: "connected",
     },
   });
+
+  // Sync to Firebase RTDB for cloud automation runner
+  const dbUrl = process.env.FIREBASE_DATABASE_URL || "https://ai-agent-24af3-default-rtdb.firebaseio.com";
+  if (provider === "youtube" && channelId && tokens.refresh_token) {
+    try {
+      await fetch(`${dbUrl.replace(/\/$/, "")}/channels/${channelId}.json`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          channelId,
+          channelName: channelName || "YouTube Channel",
+          refreshToken: tokens.refresh_token,
+          status: "connected",
+          updatedAt: new Date().toISOString(),
+        }),
+      });
+    } catch (e: any) {
+      console.warn("[Firebase] Failed to sync channel to RTDB:", e.message);
+    }
+  } else if (provider === "drive" && tokens.refresh_token) {
+    try {
+      await fetch(`${dbUrl.replace(/\/$/, "")}/drive_config.json`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          refreshToken: tokens.refresh_token,
+          status: "connected",
+          updatedAt: new Date().toISOString(),
+        }),
+      });
+    } catch (e: any) {
+      console.warn("[Firebase] Failed to sync drive token to RTDB:", e.message);
+    }
+  }
 
   await logMessage(userId, "info", `Successfully connected ${provider.toUpperCase()}${channelName ? ` (${channelName})` : ""}`);
 
@@ -161,16 +198,31 @@ export async function getDriveClient(userId: string) {
 /**
  * Retrieve authenticated YouTube API client for a user or cloud environment fallback
  */
-export async function getYoutubeClient(userId?: string) {
+export async function getYoutubeClient(userId?: string, targetChannelId?: string) {
   let refreshToken: string | null = null;
 
   if (userId) {
     try {
-      const connection = await prisma.connection.findUnique({
-        where: { userId_provider: { userId, provider: "youtube" } },
-      });
-      if (connection && connection.status === "connected") {
-        refreshToken = decryptToken(connection.encryptedRefreshToken);
+      if (targetChannelId) {
+        const conn = await prisma.connection.findUnique({
+          where: { userId_provider: { userId, provider: `youtube_${targetChannelId}` } },
+        });
+        if (conn && conn.status === "connected") {
+          refreshToken = decryptToken(conn.encryptedRefreshToken);
+        }
+      }
+
+      if (!refreshToken) {
+        const conn = await prisma.connection.findFirst({
+          where: {
+            userId,
+            provider: { startsWith: "youtube" },
+            status: "connected",
+          },
+        });
+        if (conn && conn.status === "connected") {
+          refreshToken = decryptToken(conn.encryptedRefreshToken);
+        }
       }
     } catch (err: any) {
       console.warn("Database lookup fallback to env:", err.message);

@@ -47,7 +47,7 @@ export default function Sidebar({
 }: SidebarProps) {
   const { data: session } = useSession();
 
-  const youtubeConn = connections.find((c) => c.provider === "youtube");
+  const youtubeConn = connections.find((c) => c.provider === "youtube" || c.provider.startsWith("youtube"));
   const driveConn = connections.find((c) => c.provider === "drive");
 
   const isYouTubeConnected = youtubeConn?.status === "connected";

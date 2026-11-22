@@ -14,7 +14,7 @@ export default function AutoClipHeader({ connections, onOpenClipper }: AutoClipH
   const { data: session } = useSession();
   const [showUserMenu, setShowUserMenu] = useState(false);
 
-  const youtubeConn = connections.find((c) => c.provider === "youtube");
+  const youtubeConn = connections.find((c) => c.provider === "youtube" || c.provider.startsWith("youtube"));
   const channelName = youtubeConn?.channelName || "AutoClip Studio";
 
   return (

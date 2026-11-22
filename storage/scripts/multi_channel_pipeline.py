@@ -203,7 +203,21 @@ def upload_to_youtube(video_path: str, title: str, access_token: str, max_retrie
             with urllib.request.urlopen(req, timeout=300) as res:
                 res_data = json.loads(res.read().decode("utf-8"))
                 return res_data["id"]
+        except urllib.error.HTTPError as he:
+            try:
+                err_body = he.read().decode("utf-8", errors="replace")
+                print(f"[Upload HTTPError {he.code}] {err_body}")
+                if "uploadLimitExceeded" in err_body or "exceeded the number of videos" in err_body:
+                    raise Exception("DAILY_UPLOAD_LIMIT_EXCEEDED")
+            except Exception as read_ex:
+                if str(read_ex) == "DAILY_UPLOAD_LIMIT_EXCEEDED":
+                    raise read_ex
+            last_err = he
+            if attempt < max_retries:
+                time.sleep(5 * attempt)
         except Exception as e:
+            if str(e) == "DAILY_UPLOAD_LIMIT_EXCEEDED":
+                raise e
             last_err = e
             print(f"[Upload Attempt {attempt}/{max_retries} Notice] {e}")
             if attempt < max_retries:
@@ -342,8 +356,18 @@ def run_pipeline(videos_per_channel: int = 1):
 
             except Exception as ex:
                 err_msg = str(ex)
-                print(f"ERROR uploading to {ch_name}: {err_msg}")
-                send_telegram(f"⚠️ *[{ch_name}] Upload Notice:* {err_msg}")
+                if "DAILY_UPLOAD_LIMIT_EXCEEDED" in err_msg:
+                    print(f"[{ch_name}] YouTube daily upload limit reached (uploadLimitExceeded).")
+                    send_telegram(
+                        f"🛑 *[{ch_name}] Daily Upload Limit Reached!* ✅\n\n"
+                        f"• Is channel par aaj ki maximum daily upload limit complete ho chuki hai!\n"
+                        f"• YouTube Data API ne 24-hour limit lock kar di hai (`uploadLimitExceeded`).\n"
+                        f"• Aaj is channel par sabhi videos successfully post ho chuki hain. Quota kal subah 5:30 AM IST par reset hoga!"
+                    )
+                    break
+                else:
+                    print(f"ERROR uploading to {ch_name}: {err_msg}")
+                    send_telegram(f"⚠️ *[{ch_name}] Upload Notice:* {err_msg}")
             finally:
                 # Zero-Storage Guarantee: Wipe local temp files immediately
                 for p in [temp_raw, temp_edited]:

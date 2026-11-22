@@ -51,6 +51,7 @@ storage/telegram_notify_queue.jsonl
 storage/downloads/
 storage/cloud_temp/
 public/clips/
+storage/scripts/test_*.py
 
 # Media & temp files
 *.mp4

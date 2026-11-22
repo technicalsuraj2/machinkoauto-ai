@@ -135,29 +135,63 @@ def log_system_event(event_type: str, details: str):
     except Exception:
         pass
 
+def sync_channel_title_to_db(ch_id: str, new_title: str):
+    """Auto-sync updated channel name from YouTube API to Firebase RTDB"""
+    try:
+        url = f"{FIREBASE_DATABASE_URL}/channels/{ch_id}/channelName.json"
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(new_title).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="PUT"
+        )
+        urllib.request.urlopen(req, timeout=4)
+        print(f"[Channel Name Synced] {ch_id} -> '{new_title}'")
+    except Exception as e:
+        print(f"[Sync Name Notice] {e}")
+
 # ==========================================
-# 2. Fuzzy Channel Matcher
+# 2. Dynamic & Fuzzy Channel Matcher
 # ==========================================
 def match_channel(text: str) -> dict | None:
-    """Fuzzy match user text to a connected YouTube channel"""
+    """Fuzzy match user text dynamically using live names from Firebase, Channel IDs, and aliases"""
     if not text:
         return None
     lower = text.lower()
 
-    # Exact alias check
-    for ch_id, meta in CHANNEL_ALIASES.items():
-        if meta["name"].lower() in lower:
-            return {"channelId": ch_id, "channelName": meta["name"]}
-        for alias in meta["aliases"]:
-            # Word boundary search
-            if re.search(r'\b' + re.escape(alias) + r'\b', lower):
-                return {"channelId": ch_id, "channelName": meta["name"]}
+    # 1. Fetch live channels directly from Firebase RTDB
+    channels_map = {}
+    try:
+        url = f"{FIREBASE_DATABASE_URL}/channels.json"
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=4) as res:
+            channels_map = json.loads(res.read().decode("utf-8") or "{}")
+    except Exception:
+        pass
 
-    # Fallback partial substring check
+    # Check live channel names from Firebase
+    for ch_id, info in channels_map.items():
+        name = (info.get("channelName") or "").strip()
+        if name and name.lower() in lower:
+            return {"channelId": ch_id, "channelName": name}
+        # Check individual words in channel name (length > 2)
+        for w in name.lower().split():
+            if len(w) > 2 and re.search(r'\b' + re.escape(w) + r'\b', lower):
+                return {"channelId": ch_id, "channelName": name}
+
+    # 2. Check Channel IDs directly
+    for ch_id in channels_map.keys():
+        if ch_id.lower() in lower:
+            return {"channelId": ch_id, "channelName": channels_map[ch_id].get("channelName", ch_id)}
+
+    # 3. Check historical aliases (channel 1, channel 2, cart, fashion, cinema, etc.)
     for ch_id, meta in CHANNEL_ALIASES.items():
+        live_name = channels_map.get(ch_id, {}).get("channelName", meta["name"])
+        if meta["name"].lower() in lower:
+            return {"channelId": ch_id, "channelName": live_name}
         for alias in meta["aliases"]:
-            if alias in lower:
-                return {"channelId": ch_id, "channelName": meta["name"]}
+            if re.search(r'\b' + re.escape(alias) + r'\b', lower) or alias in lower:
+                return {"channelId": ch_id, "channelName": live_name}
 
     return None
 
@@ -178,7 +212,7 @@ def get_channel_token(refresh_token: str) -> str:
         return data["access_token"]
 
 def fetch_single_channel_fast(ch_id: str, refresh_token: str) -> dict:
-    """Fetch live channel stats quickly from YouTube API"""
+    """Fetch live channel stats and auto-sync updated channel name from YouTube API"""
     try:
         token = get_channel_token(refresh_token)
         ch_url = "https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&mine=true"
@@ -190,9 +224,14 @@ def fetch_single_channel_fast(ch_id: str, refresh_token: str) -> dict:
             ch = items[0]
             stats = ch.get("statistics", {})
             snippet = ch.get("snippet", {})
+            live_title = snippet.get("title", "YouTube Channel").strip()
+
+            # Auto-sync live channel title to Firebase RTDB whenever changed on YouTube
+            sync_channel_title_to_db(ch_id, live_title)
+
             return {
                 "channelId": ch_id,
-                "title": snippet.get("title", "YouTube Channel"),
+                "title": live_title,
                 "subscribers": int(stats.get("subscriberCount", 0)),
                 "videos": int(stats.get("videoCount", 0)),
                 "views": int(stats.get("viewCount", 0))

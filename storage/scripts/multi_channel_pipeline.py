@@ -354,6 +354,24 @@ def run_pipeline(videos_per_channel: int = 1, target_channel: str = None):
         ch_id = ch.get("channelId")
         ch_refresh = ch.get("refreshToken")
 
+        # Auto-sync live channel title from YouTube API if renamed
+        try:
+            tok = get_access_token(ch_refresh)
+            req_snip = urllib.request.Request("https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true", headers={"Authorization": f"Bearer {tok}"})
+            with urllib.request.urlopen(req_snip, timeout=8) as r_snip:
+                d_snip = json.loads(r_snip.read().decode("utf-8"))
+                items = d_snip.get("items", [])
+                if items:
+                    live_title = items[0]["snippet"].get("title", "").strip()
+                    if live_title and live_title != ch_name:
+                        print(f"[Name Sync] Channel renamed on YouTube: '{ch_name}' -> '{live_title}'. Updating Firebase...")
+                        ch_name = live_title
+                        url_fb = f"{FIREBASE_URL}/channels/{ch_id}/channelName.json"
+                        req_fb = urllib.request.Request(url_fb, data=json.dumps(live_title).encode("utf-8"), headers={"Content-Type": "application/json"}, method="PUT")
+                        urllib.request.urlopen(req_fb, timeout=5)
+        except Exception:
+            pass
+
         # Check Stop Flag before starting channel
         if check_stop_flag(ch_id):
             print(f"[{ch_name}] STOP flag active for this channel or globally. Skipping.")

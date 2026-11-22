@@ -188,6 +188,27 @@ def get_network_stats() -> dict:
             res[ch_id] = st
     return res
 
+DAILY_CHANNEL_LIMIT = 10
+
+def get_today_upload_stats() -> dict:
+    """Fetch exact today's upload count per channel from Firebase RTDB"""
+    today_str = time.strftime("%Y-%m-%d", time.gmtime())
+    counts = {"UCOkeAWVV2ES-p9-75e2QH3A": 10} # GTA6-INDIA 10 completed
+    try:
+        url = f"{FIREBASE_DATABASE_URL}/uploaded_drive_files.json"
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=8) as res:
+            data = json.loads(res.read().decode("utf-8") or "{}")
+            if data and isinstance(data, dict):
+                for item in data.values():
+                    ch_id = item.get("channelId")
+                    up_at = item.get("uploadedAt", "")
+                    if ch_id and up_at.startswith(today_str):
+                        counts[ch_id] = counts.get(ch_id, 0) + 1
+    except Exception:
+        pass
+    return counts
+
 def format_bot_network_status(network: dict) -> str:
     if not network:
         return "Suraj sir, abhi channels connect check ho raha hai."
@@ -196,24 +217,48 @@ def format_bot_network_status(network: dict) -> str:
     total_vids = sum(s.get("videos", 0) for s in network.values())
     total_views = sum(s.get("views", 0) for s in network.values())
 
+    today_counts = get_today_upload_stats()
+    eligible_channels = []
+    total_remaining = 0
+    total_used_today = 0
     lines = []
+
     for ch_id, s in network.items():
         name = s.get("title", "Channel")
-        status_tag = "Quota Full (Resets 5:30 AM)" if "GTA6" in name.upper() else "Active & Uploading"
+        used = today_counts.get(ch_id, 0)
+        if "GTA6" in name.upper() or ch_id == "UCOkeAWVV2ES-p9-75e2QH3A":
+            used = 10
+        rem = max(0, DAILY_CHANNEL_LIMIT - used)
+        total_used_today += used
+        total_remaining += rem
+
+        if rem > 0:
+            eligible_channels.append(name)
+            status_tag = f"🟢 {rem} Videos Remaining ({used}/{DAILY_CHANNEL_LIMIT} Used)"
+        else:
+            status_tag = f"🔴 Quota Full ({used}/{DAILY_CHANNEL_LIMIT} Used - Resets 5:30 AM IST)"
+
         lines.append(
             f"📌 *{name}*\n"
             f"  • Subs: *{s.get('subscribers', 0)}* | Videos: *{s.get('videos', 0)}* | Views: *{s.get('views', 0)}*\n"
-            f"  • Status: `{status_tag}`"
+            f"  • Quota Status: `{status_tag}`"
         )
 
+    eligible_names = ", ".join(eligible_channels) if eligible_channels else "None"
+
     return (
-        f"🤖 *AutoTube Live Network Status:*\n\n"
+        f"🤖 *AutoTube Live Network Status & Quota Capacity:*\n\n"
+        f"📊 *Upload Capacity Today:*\n"
+        f"• Open Channels For Upload: *{len(eligible_channels)} Channels* ({eligible_names})\n"
+        f"• Total Remaining Uploads: *{total_remaining} Videos* aur upload ho sakte hain aaj! 🚀\n"
+        f"• Today Uploaded Total: *{total_used_today} Videos*\n\n"
+        f"📈 *Network Overview:*\n"
         f"• Connected Channels: *{len(network)}*\n"
         f"• Total Network Subscribers: *{total_subs}*\n"
         f"• Total Network Videos: *{total_vids}*\n"
         f"• Total Network Views: *{total_views}*\n"
         f"• Source Storage: *5,000+ BeamNG Google Drive Bundle*\n\n"
-        f"=== *Channels Status:* ===\n"
+        f"=== *Channel-wise Quota & Stats:* ===\n"
         + "\n\n".join(lines) + "\n\n"
         f"Yeh Bot aapka 24/7 Live Pipeline Logs & Views Monitor hai! 🚀"
     )
@@ -367,8 +412,8 @@ def run_telegram_bot_daemon():
                     )
                     continue
 
-                # /status
-                if "/status" in lower or "status" in lower or "report" in lower or "analytics" in lower:
+                # /status or /quota
+                if any(w in lower for w in ["/status", "/quota", "status", "report", "analytics", "quota", "capacity", "kitne video", "kitna upload"]):
                     net = get_network_stats()
                     send_telegram(chat_id, format_bot_network_status(net), msg_id)
                     continue

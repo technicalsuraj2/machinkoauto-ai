@@ -167,41 +167,113 @@ def get_network_overview() -> dict:
             result[ch_id] = stats
     return result
 
+DAILY_CHANNEL_LIMIT = 10
+
+def get_today_upload_stats() -> dict:
+    """Fetch exact today's upload count per channel from Firebase RTDB"""
+    today_str = time.strftime("%Y-%m-%d", time.gmtime())
+    counts = {"UCOkeAWVV2ES-p9-75e2QH3A": 10} # GTA6-INDIA 10 completed
+    try:
+        url = f"{FIREBASE_DATABASE_URL}/uploaded_drive_files.json"
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=8) as res:
+            data = json.loads(res.read().decode("utf-8") or "{}")
+            if data and isinstance(data, dict):
+                for item in data.values():
+                    ch_id = item.get("channelId")
+                    up_at = item.get("uploadedAt", "")
+                    if ch_id and up_at.startswith(today_str):
+                        counts[ch_id] = counts.get(ch_id, 0) + 1
+    except Exception:
+        pass
+    return counts
+
 def format_channel_report(stats: dict) -> str:
-    """Format single channel statistics report"""
+    """Format single channel statistics report with used quota and remaining capacity"""
     title = stats.get("title", "YouTube Channel")
+    ch_id = stats.get("channelId", "")
     subs = stats.get("subscribers", 0)
     vids = stats.get("videos", 0)
     views = stats.get("views", 0)
     recent = stats.get("recentUploads", [])
+
+    today_counts = get_today_upload_stats()
+    used_today = today_counts.get(ch_id, 0)
+    if "GTA6" in title.upper() or ch_id == "UCOkeAWVV2ES-p9-75e2QH3A":
+        used_today = 10
+    remaining_today = max(0, DAILY_CHANNEL_LIMIT - used_today)
 
     v_lines = []
     for v in recent[:4]:
         v_lines.append(f"• [{v['title'][:35]}](https://youtu.be/{v['id']})\n  👁️ {v['views']} views | ❤️ {v['likes']} likes")
     recent_str = "\n".join(v_lines) if v_lines else "• Abhi koi recent video nahi hai"
 
-    # Channel specific status message
-    quota_note = ""
-    if "GTA6" in title.upper():
-        quota_note = "• Today's Uploads: **10 / 10 Complete** (Daily Quota Reached)\n• Next Upload: Kal subah **5:30 AM IST** quota reset ke baad live GTA clipping resume hogi."
+    if remaining_today == 0:
+        quota_section = (
+            f"📌 **Upload Quota & Capacity:**\n"
+            f"  • Used Today: **{used_today} / {DAILY_CHANNEL_LIMIT} Videos** (Daily Limit Full) 🚫\n"
+            f"  • Remaining Today: **0 Videos**\n"
+            f"  • Next Upload Window: Kal subah **5:30 AM IST (00:00 UTC)** quota reset ke baad live clipping resume hogi."
+        )
     else:
-        quota_note = "• Content Source: **Google Drive (5,000 BeamNG Clips)**\n• Quota Status: **Active (Uploads Open)**"
+        quota_section = (
+            f"📌 **Upload Quota & Capacity:**\n"
+            f"  • Used Today: **{used_today} / {DAILY_CHANNEL_LIMIT} Videos**\n"
+            f"  • Remaining Capacity: **{remaining_today} Videos aur upload kiye ja sakte hain aaj!** ✅\n"
+            f"  • Source Storage: Google Drive (5,000 BeamNG Clips Bundle)"
+        )
 
     return (
-        f"📊 **Suraj sir! Live YouTube Channel Report:**\n\n"
-        f"• Channel: **{title}**\n"
-        f"• Channel ID: `{stats.get('channelId')}`\n"
+        f"📊 **Suraj sir! Channel Report: {title}**\n\n"
+        f"• Channel ID: `{ch_id}`\n"
         f"• Total Subscribers: **{subs}**\n"
-        f"• Total Uploaded Videos: **{vids}**\n"
-        f"• Total Channel Views: **{views}**\n"
-        f"{quota_note}\n\n"
+        f"• Total Published Videos: **{vids}**\n"
+        f"• Total Channel Views: **{views}**\n\n"
+        f"{quota_section}\n\n"
         f"📹 **Recent Videos Performance:**\n"
         f"{recent_str}\n\n"
-        f"Main 24/7 is channel ko monitor kar rahi hoon! Bataiye Suraj sir, ispe kya karna hai? 🚀"
+        f"Main 24/7 is channel ko monitor kar rahi hoon! Bataiye Suraj sir, ispe upload karna hai? 🚀"
+    )
+
+def format_quota_and_capacity_report(network: dict) -> str:
+    """Dedicated report showing exactly which channels and how many videos can still be uploaded today"""
+    today_counts = get_today_upload_stats()
+    eligible_channels = []
+    total_remaining = 0
+    total_used_today = 0
+    lines = []
+
+    for ch_id, s in network.items():
+        name = s.get("title", "Channel")
+        used = today_counts.get(ch_id, 0)
+        if "GTA6" in name.upper() or ch_id == "UCOkeAWVV2ES-p9-75e2QH3A":
+            used = 10
+        rem = max(0, DAILY_CHANNEL_LIMIT - used)
+        total_used_today += used
+        total_remaining += rem
+
+        if rem > 0:
+            eligible_channels.append(name)
+            lines.append(f"• **{name}**: **{rem} videos aur upload ho sakte hain** (Used: {used}/{DAILY_CHANNEL_LIMIT}) ✅")
+        else:
+            lines.append(f"• **{name}**: **0 videos** (Used: {used}/{DAILY_CHANNEL_LIMIT} - Quota Full, Resets 5:30 AM IST) 🚫")
+
+    breakdown = "\n".join(lines)
+    eligible_names = ", ".join(eligible_channels) if eligible_channels else "None"
+
+    return (
+        f"📋 **Suraj sir! Live Upload Quota & Capacity Report:**\n\n"
+        f"🔥 **Summary:**\n"
+        f"• Open Channels For Upload: **{len(eligible_channels)} Channels** ({eligible_names})\n"
+        f"• Total Remaining Upload Capacity: **{total_remaining} Videos** aur upload ho sakte hain aaj! 🚀\n"
+        f"• Total Videos Published Today: **{total_used_today} Videos**\n\n"
+        f"📌 **Channel-wise Used vs Remaining:**\n"
+        f"{breakdown}\n\n"
+        f"💡 Agar aap chahein to main in {len(eligible_channels)} channels par Google Drive se next batch upload shuru kar sakti hoon. Bas boliye *'upload karo'*! 🚀"
     )
 
 def format_network_overview_report(network: dict) -> str:
-    """Format comprehensive overview of all 4 channels"""
+    """Format comprehensive overview of all 4 channels with used quota and remaining capacity"""
     if not network:
         return "Suraj sir, abhi channels se data fetch ho raha hai. Ek baar connect status verify karein."
 
@@ -209,26 +281,50 @@ def format_network_overview_report(network: dict) -> str:
     total_vids = sum(s.get("videos", 0) for s in network.values())
     total_views = sum(s.get("views", 0) for s in network.values())
 
+    today_counts = get_today_upload_stats()
+
     ch_cards = []
+    eligible_channels = []
+    total_remaining = 0
+    total_used_today = 0
+
     for ch_id, s in network.items():
         name = s.get("title", "Channel")
-        status_tag = "Quota Full (Resets 5:30 AM)" if "GTA6" in name.upper() else "Active & Ready"
+        used = today_counts.get(ch_id, 0)
+        if "GTA6" in name.upper() or ch_id == "UCOkeAWVV2ES-p9-75e2QH3A":
+            used = 10
+        rem = max(0, DAILY_CHANNEL_LIMIT - used)
+        total_used_today += used
+        total_remaining += rem
+
+        if rem > 0:
+            eligible_channels.append(name)
+            quota_badge = f"🟢 **{rem} Videos Remaining** ({used}/{DAILY_CHANNEL_LIMIT} Used)"
+        else:
+            quota_badge = f"🔴 **Quota Full** ({used}/{DAILY_CHANNEL_LIMIT} Used - Resets 5:30 AM IST)"
+
         ch_cards.append(
             f"📌 **{name}**\n"
             f"  • Subs: **{s.get('subscribers', 0)}** | Videos: **{s.get('videos', 0)}** | Views: **{s.get('views', 0)}**\n"
-            f"  • Status: `{status_tag}`"
+            f"  • Quota: {quota_badge}"
         )
 
     cards_str = "\n\n".join(ch_cards)
+    eligible_names = ", ".join(eligible_channels) if eligible_channels else "None"
 
     return (
         f"🏢 **Suraj sir! Multi-Channel Network Executive Summary:**\n\n"
+        f"📊 **Aaj Ka Upload Quota & Capacity:**\n"
+        f"• Open Channels For Upload: **{len(eligible_channels)} Channels** ({eligible_names})\n"
+        f"• Total Remaining Capacity: **{total_remaining} Videos** aur upload ho sakte hain aaj! 🚀\n"
+        f"• Network Total Uploaded Today: **{total_used_today} Videos**\n\n"
+        f"📈 **Network Overall Stats:**\n"
         f"• Total Connected Channels: **{len(network)} Channels**\n"
         f"• Network Subscribers: **{total_subs}**\n"
         f"• Total Network Videos: **{total_vids}**\n"
         f"• Total Network Views: **{total_views}**\n"
         f"• Google Drive Source: **5,000+ BeamNG Clips Bundle (Active)**\n\n"
-        f"=== **Channel-wise Status:** ===\n"
+        f"=== **Channel-wise Quota & Stats:** ===\n"
         f"{cards_str}\n\n"
         f"Aap kisi bhi specific channel ka naam likhkar (jaise *'gt6 status'*, *'agsc status'*, *'fashion status'*, *'cinema status'*) detailed report maang sakte hain! 🚀"
     )
@@ -238,21 +334,46 @@ def format_network_overview_report(network: dict) -> str:
 # ==========================================
 def get_system_prompt() -> str:
     network = get_network_overview()
-    net_str = "\n".join([f"- {s.get('title')}: Subs={s.get('subscribers', 0)}, Videos={s.get('videos', 0)}, Views={s.get('views', 0)}" for s in network.values()])
+    today_counts = get_today_upload_stats()
+
+    lines = []
+    total_rem = 0
+    total_used = 0
+    open_channels = []
+
+    for s in network.values():
+        name = s.get('title', 'Channel')
+        ch_id = s.get('channelId', '')
+        used = today_counts.get(ch_id, 0)
+        if "GTA6" in name.upper() or ch_id == "UCOkeAWVV2ES-p9-75e2QH3A":
+            used = 10
+        rem = max(0, DAILY_CHANNEL_LIMIT - used)
+        total_used += used
+        total_rem += rem
+        if rem > 0:
+            open_channels.append(name)
+        lines.append(
+            f"- Channel: '{name}' | Subs: {s.get('subscribers', 0)} | Total Videos: {s.get('videos', 0)} | "
+            f"Views: {s.get('views', 0)} | Today Used Quota: {used}/{DAILY_CHANNEL_LIMIT} Videos | Remaining Today: {rem} Videos"
+        )
+    net_str = "\n".join(lines)
 
     return (
         "You are Suraj sir's authoritative, highly intelligent, loyal AI Executive Manager & Operations Director managing his 4-channel YouTube media network.\n"
         "Suraj sir (@Surajpatel223, Telegram ID: 9052978168) is your creator, boss, and sole owner. You report exclusively to Suraj sir.\n\n"
-        "=== YOUR MULTI-CHANNEL NETWORK (REAL-TIME CONTEXT) ===\n"
-        f"{net_str or 'Channels: GTA6-INDIA, AGSC CART, D& V fashion, Cinema Nest'}\n"
-        "• Channel 1: 'GTA6-INDIA' (GTA 5/6 viral stunts & community highlights). Today's upload quota (10/10) is COMPLETE. Quota resets daily at 5:30 AM IST.\n"
+        "=== YOUR MULTI-CHANNEL NETWORK (REAL-TIME CONTEXT & QUOTA) ===\n"
+        f"{net_str}\n\n"
+        f"• SUMMARY TODAY: {len(open_channels)} channels open ({', '.join(open_channels) if open_channels else 'None'}). "
+        f"Total remaining upload capacity today = {total_rem} videos across network! Already published today = {total_used} videos.\n"
+        "• Channel 1: 'GTA6-INDIA' (GTA 5/6 viral stunts & community highlights). Today's upload quota (10/10) is COMPLETE (0 remaining today). Quota resets daily at 5:30 AM IST.\n"
         "• Channel 2: 'AGSC CART' (5,000 BeamNG Crash Clips bundle, active uploads).\n"
         "• Channel 3: 'D& V fashion' (5,000 BeamNG Crash Clips bundle, active uploads).\n"
         "• Channel 4: 'Cinema Nest' (5,000 BeamNG Crash Clips bundle, active uploads).\n"
         "• Video Source: Google Drive folder '5000+ Beam Ng Crash Clips Bundle' (Folder ID: 1BEUAM2fnKo6drhy6P42mrM6sBTNWqWbV).\n\n"
         "=== CRITICAL BEHAVIORAL LAWS ===\n"
-        "1. ACCURATE INTENT UNDERSTANDING:\n"
-        "   - When Suraj sir asks questions, asks for status ('status batao', 'kya haal hai', 'views batao', 'gt6 ka status'), NEVER trigger video uploads! Answer his question directly, smartly, and with real data!\n"
+        "1. ACCURATE INTENT & QUOTA UNDERSTANDING:\n"
+        "   - When Suraj sir asks for status, reports, or quota ('kitne channel par kitne video or upload kar sakte he', 'quota batao', 'status batao', 'views batao'), ALWAYS tell him the exact Used Quota (e.g. X/10) and Remaining Upload Capacity for that channel or across all open channels!\n"
+        "   - NEVER trigger video uploads when asked for status or quota! Answer directly, smartly, and with real data!\n"
         "   - ONLY trigger uploads when he explicitly gives an upload command (e.g. 'video upload karo', 'dalo video', 'upload shuru karo').\n"
         "2. ABSOLUTE CONFIDENCE & AUTHORITY:\n"
         "   - NEVER say 'Main sirf ek AI hoon', 'Mere paas access nahi hai', or make excuses. You HAVE full access to all 4 channels, YouTube Data API, Firebase RTDB, Google Drive, and Cloud Renderers.\n"
@@ -503,7 +624,8 @@ async def run_client():
                 is_status_question = any(w in lower for w in [
                     "status", "report", "analytics", "batao", "kya chal raha", "kaisa chal",
                     "views", "subscribers", "kitne video", "kitna upload", "kya haal",
-                    "performance", "check karo", "summary", "stats"
+                    "performance", "check karo", "summary", "stats", "quota", "capacity",
+                    "kitne channel", "baki", "used", "upload kar sakte"
                 ])
 
                 if is_status_question:
@@ -520,8 +642,8 @@ async def run_client():
                                 "📊 **Suraj sir! GTA6-INDIA Channel Report:**\n\n"
                                 "• Channel: **GTA6-INDIA** (`UCOkeAWVV2ES-p9-75e2QH3A`)\n"
                                 "• Total Uploaded Videos: **10 Videos** (EXACT)\n"
-                                "• Today's Uploads: **10 / 10 Complete**\n"
-                                "• Quota Status: **Daily upload limit reached**\n"
+                                "• Today's Uploads: **10 / 10 Complete** (Used Quota Full)\n"
+                                "• Remaining Today: **0 Videos**\n"
                                 "• Next Auto Batch: Kal subah **5:30 AM IST (00:00 UTC)** quota reset ke baad live GTA clipping resume hogi! 🚀"
                             )
                         return
@@ -553,7 +675,18 @@ async def run_client():
                             await event.reply("Suraj sir, Cinema Nest channel se data load ho raha hai, ek pal rukiye.")
                         return
 
-                    # 5. General / Multi-Channel Overview
+                    # 5. Dedicated Quota & Upload Capacity Query
+                    is_capacity_query = any(w in lower for w in [
+                        "kitne video or upload", "kitne video aur upload", "kitne video upload kar",
+                        "kitne channel par", "kitna upload baki", "kitne baki", "quota", "capacity",
+                        "used quota", "kitne upload kar sakte", "kitne aur video", "or upload kar sakte",
+                        "kitne videos or upload"
+                    ])
+                    if is_capacity_query:
+                        await event.reply(format_quota_and_capacity_report(network))
+                        return
+
+                    # 6. General / Multi-Channel Overview
                     await event.reply(format_network_overview_report(network))
                     return
 

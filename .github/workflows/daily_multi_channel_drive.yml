@@ -1,0 +1,46 @@
+name: 24/7 Multi-Channel Google Drive Pipeline
+
+on:
+  schedule:
+    # Runs automatically every day at 01:00 UTC (6:30 AM IST)
+    - cron: '0 1 * * *'
+  workflow_dispatch:
+    inputs:
+      videos_per_channel:
+        description: 'Number of Drive clips to upload per channel'
+        required: true
+        default: '5'
+
+jobs:
+  run-drive-pipeline:
+    name: Multi-Channel 5,000 Drive Pipeline
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install FFmpeg & System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Install Python Dependencies
+        run: |
+          pip install python-dotenv
+
+      - name: Execute Multi-Channel Drive Pipeline
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          FIREBASE_DATABASE_URL: ${{ secrets.FIREBASE_DATABASE_URL }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CREATOR_ID: ${{ secrets.TELEGRAM_CREATOR_ID }}
+        run: |
+          python -u storage/scripts/multi_channel_pipeline.py ${{ github.event.inputs.videos_per_channel || 5 }}

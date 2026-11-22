@@ -42,16 +42,19 @@ VIRAL_HEADLINES = [
 ]
 
 DIRECT_GAMEPLAY_SOURCES = [
-    "https://archive.org/download/stunt_202610/stunt.mp4",
+    "https://archive.org/download/spidermanfailsgta5jumpfallsfunnymoments/GTA%205%20Parkour%20Ragdolls%20Funny%20Moments%20Jumps_Fails.mp4",
+    "https://archive.org/download/GTA5FunnyMomentsFunnyFailPART3/GTA%205%20Funny%20Moments%20-Funny%20Fail%20PART%203.mp4",
+    "https://archive.org/download/youtube-8t2iffDpLdI/8t2iffDpLdI.mp4",
+    "https://archive.org/download/GTA5LandingOnABLIMPFullVideoGTA5FunnyMoments/GTA%205%20Landing%20on%20a%20BLIMP%21%20Full%20Video%20%20%20GTA%205%20Funny%20Moments.mp4"
 ]
 
 def send_telegram(text: str):
-    """Send direct notification to Suraj sir via Telegram Bot"""
+    """Send direct notification to Suraj sir via Telegram Bot with plain text fallback"""
     if not TELEGRAM_BOT_TOKEN:
         print("[Telegram Notice] No bot token configured.")
         return
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         payload = {
             "chat_id": CREATOR_ID,
             "text": text,
@@ -61,8 +64,19 @@ def send_telegram(text: str):
         req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
         urllib.request.urlopen(req, timeout=10)
         print("[Telegram Alert Sent to Suraj sir]")
-    except Exception as e:
-        print(f"[Telegram Alert Notice] {e}")
+    except Exception:
+        try:
+            # Fallback to plain text if Markdown fails (e.g. underscores in URLs)
+            payload = {
+                "chat_id": CREATOR_ID,
+                "text": text
+            }
+            data = json.dumps(payload).encode("utf-8")
+            req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+            urllib.request.urlopen(req, timeout=10)
+            print("[Telegram Alert Sent to Suraj sir (Plain Text)]")
+        except Exception as e:
+            print(f"[Telegram Alert Notice] {e}")
 
 def get_youtube_access_token():
     """Exchange refresh token for fresh YouTube API access token"""
@@ -301,6 +315,7 @@ def run_cloud_pipeline(clip_target: int = 10, search_term: str = "gta 6 funny mo
                 "-i", source_video_path,
                 "-t", str(clip_duration),
                 "-vf", vf_filter,
+                "-af", "atempo=1.03",
                 "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
                 "-c:a", "aac", "-b:a", "128k",
                 out_clip_path
@@ -326,8 +341,7 @@ def run_cloud_pipeline(clip_target: int = 10, search_term: str = "gta 6 funny mo
 
             # 4. Upload to YouTube
             clip_title = f"{headline} #{i+1} - GTA 6 Viral"
-            if i == 0 or i == 4 or i == 9:
-                send_telegram(f"✂️ *Clip #{i+1}/{clip_target} Ready:* 9:16 Crop + Bold Captions (\"`{headline}`\") + Thumbnail ✅\n• YouTube upload shuru...")
+            send_telegram(f"✂️ *Clip #{i+1}/{clip_target} Ready:* 9:16 Crop + Bold Captions (\"`{headline}`\") + Thumbnail ✅\n• YouTube upload shuru...")
             try:
                 yt_id = upload_youtube_short(out_clip_path, clip_title, video_title, access_token)
                 live_url = f"https://youtu.be/{yt_id}"

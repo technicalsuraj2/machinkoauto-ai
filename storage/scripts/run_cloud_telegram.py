@@ -72,6 +72,13 @@ def main():
                 last_triggers[key] = True
                 trigger_pipeline("daily_multi_channel_drive.yml")
 
+        # Slot 4: 21:30 UTC (3:00 AM IST) -> IShowSpeed Stream Clipper & Stager (Before 5:30 AM reset)
+        if utc_hour == 21 and 30 <= utc_minute <= 45:
+            key = f"speed_{today_date}_slot1"
+            if key not in last_triggers:
+                last_triggers[key] = True
+                trigger_pipeline("speed_stream_pipeline.yml")
+
         time.sleep(20)
 
     # 4. Clean shutdown of current session BEFORE triggering successor

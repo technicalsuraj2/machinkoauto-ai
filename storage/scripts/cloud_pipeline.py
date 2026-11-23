@@ -209,15 +209,26 @@ def download_direct_gameplay(dest_path: str) -> bool:
             print(f"[CDN Fallback Error] {e}")
     return False
 
-def run_cloud_pipeline(clip_target: int = 10, search_term: str = "gta 6 funny moments gameplay reaction"):
+def run_cloud_pipeline(clip_target: int = 10, search_term: str = "ishowspeed gta 6 funny moments reaction"):
     print("==================================================")
     print("   MachinkoAuto.Ai 24/7 Cloud Autonomous Engine   ")
+    print("   Source: IShowSpeed HD Streams -> GTA6-INDIA    ")
     print("==================================================")
+
+    # 0. Check and publish staged IShowSpeed HD clips if available
+    try:
+        from speed_stream_clipper import upload_staged_clips_to_youtube, clip_and_render_speed_moments
+        print("[Cloud Pipeline] Checking staged IShowSpeed HD clips...")
+        upload_staged_clips_to_youtube()
+    except Exception as sp_err:
+        print(f"[Speed Staging Notice]: {sp_err}")
+
     send_telegram(
-        f"🌅 *Suraj sir! Video Processing Shuru Kar Rahi Hoon!*\n\n"
-        f"• Query: *\"{search_term}\"*\n"
-        f"• Target: *{clip_target} viral 9:16 Shorts*\n"
-        f"• Sourcing, 9:16 vertical crop, *Bold Captions & Thumbnails* active ho gaye hain! 🚀"
+        f"🌅 *Suraj sir! Daily YouTube Pipeline Shuru Kar Rahi Hoon!*\n\n"
+        f"• Target Channel: *GTA6-INDIA* (`@GTA6-INDIA`)\n"
+        f"• Source: *IShowSpeed HD Live Stream Moments*\n"
+        f"• Target: *{clip_target} viral 1080x1920 HD Shorts*\n"
+        f"• 1080p vertical crop, *Bold Captions & Thumbnails* active ho gaye hain! 🚀"
     )
 
     work_dir = os.path.abspath("storage/cloud_temp")

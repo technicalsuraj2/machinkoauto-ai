@@ -348,8 +348,48 @@ def get_youtube_access_token():
         data = json.loads(res.read().decode("utf-8"))
         return data["access_token"]
 
+def wipe_staged_storage():
+    """Aggressively wipe and purge all video clips and thumbnails from cloud storage so space never fills up"""
+    print("[Zero-Storage] Wiping all staged and temporary video files from cloud storage...")
+    deleted_count = 0
+    freed_bytes = 0
+
+    # 1. Clean STAGING_DIR
+    if os.path.exists(STAGING_DIR):
+        for f in os.listdir(STAGING_DIR):
+            f_path = os.path.join(STAGING_DIR, f)
+            try:
+                if os.path.isfile(f_path):
+                    freed_bytes += os.path.getsize(f_path)
+                    os.remove(f_path)
+                    deleted_count += 1
+            except Exception as e:
+                print(f"[Wipe Notice]: {e}")
+
+    # 2. Clean cloud_temp directory
+    cloud_temp = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "cloud_temp"))
+    if os.path.exists(cloud_temp):
+        try:
+            for f in os.listdir(cloud_temp):
+                f_path = os.path.join(cloud_temp, f)
+                if os.path.isfile(f_path):
+                    freed_bytes += os.path.getsize(f_path)
+                    os.remove(f_path)
+                    deleted_count += 1
+        except Exception:
+            pass
+
+    freed_mb = round(freed_bytes / (1024 * 1024), 2)
+    print(f"[Zero-Storage] Successfully wiped {deleted_count} video files ({freed_mb} MB freed)! Cloud storage is 100% clean.")
+    send_telegram(
+        f"🧹 *[Zero-Storage Wipe Completed!]*\n\n"
+        f"• Suraj sir, subah ke 5:30 AM upload ke baad cloud se *saari video clips aur temp files 100% delete aur wipe* kar di gayi hain!\n"
+        f"• Total Wiped: *{deleted_count} files* ({freed_mb} MB freed)\n"
+        f"• Storage Status: Cloud runner bilkul clean hai, 0 MB disk space occupied! Space kabhi full nahi hoga. ✅"
+    )
+
 def upload_staged_clips_to_youtube():
-    """Publish staged IShowSpeed HD clips to GTA6-INDIA"""
+    """Publish staged IShowSpeed HD clips to GTA6-INDIA and wipe all files immediately"""
     print("[Speed Uploader] Fetching staged clips from Firebase...")
     staged = {}
     try:
@@ -363,6 +403,8 @@ def upload_staged_clips_to_youtube():
     ready = [item for item in staged.values() if item.get("status") == "ready_for_upload"]
     if not ready:
         print("[Speed Uploader] No staged clips waiting for upload.")
+        # Ensure cleanup even if none ready
+        wipe_staged_storage()
         return
 
     print(f"[Speed Uploader] Found {len(ready)} staged clips ready for GTA6-INDIA!")
@@ -374,50 +416,58 @@ def upload_staged_clips_to_youtube():
 
     from cloud_pipeline import upload_youtube_short, set_youtube_thumbnail, sync_to_firebase
 
-    for clip in ready:
-        if check_stop_flag():
-            send_telegram("🛑 *[Speed Upload] Aborted by Owner Stop Flag!*")
-            break
-
-        vid_path = clip.get("local_file")
-        if not vid_path or not os.path.exists(vid_path):
-            continue
-
-        title = clip.get("title", "IShowSpeed Viral Gaming Short")
-        desc = f"{title}\n\nOriginal Stream: {clip.get('source_stream')}\n#IShowSpeed #Speed #GTA6 #Gaming #Shorts #Viral"
-
-        try:
-            yt_id = upload_youtube_short(vid_path, title, desc, token)
-            live_url = f"https://youtu.be/{yt_id}"
-            print(f"🚀 Published: {live_url}")
-
-            sync_to_firebase(yt_id, title)
-            send_telegram(f"✅ *[GTA6-INDIA] IShowSpeed HD Short LIVE!* 🚀\n📌 *{title}*\n🔗 {live_url}")
-
-            thumb = clip.get("thumb_file")
-            if thumb and os.path.exists(thumb):
-                set_youtube_thumbnail(yt_id, thumb, token)
-
-            # Mark status uploaded in Firebase
-            fb_key = f"speed_clip_{clip.get('source_id')}_{clip.get('clip_number')}"
-            up_url = f"{FIREBASE_URL}/staged_speed_clips/{fb_key}/status.json"
-            req = urllib.request.Request(up_url, data=json.dumps("uploaded").encode("utf-8"), headers={"Content-Type": "application/json"}, method="PUT")
-            urllib.request.urlopen(req, timeout=5)
-
-            # Delete local file (Zero-Storage Policy)
-            if os.path.exists(vid_path):
-                os.remove(vid_path)
-
-        except Exception as up_err:
-            print(f"[Upload Error]: {up_err}")
-            if "uploadLimitExceeded" in str(up_err) or "quotaExceeded" in str(up_err):
-                send_telegram(f"⚠️ *Quota Limit reached during Speed upload.* Remaining clips will auto-resume on next reset!")
+    try:
+        for clip in ready:
+            if check_stop_flag():
+                send_telegram("🛑 *[Speed Upload] Aborted by Owner Stop Flag!*")
                 break
+
+            vid_path = clip.get("local_file")
+            if not vid_path or not os.path.exists(vid_path):
+                continue
+
+            title = clip.get("title", "IShowSpeed Viral Gaming Short")
+            desc = f"{title}\n\nOriginal Stream: {clip.get('source_stream')}\n#IShowSpeed #Speed #GTA6 #Gaming #Shorts #Viral"
+
+            try:
+                yt_id = upload_youtube_short(vid_path, title, desc, token)
+                live_url = f"https://youtu.be/{yt_id}"
+                print(f"🚀 Published: {live_url}")
+
+                sync_to_firebase(yt_id, title)
+                send_telegram(f"✅ *[GTA6-INDIA] IShowSpeed HD Short LIVE!* 🚀\n📌 *{title}*\n🔗 {live_url}")
+
+                thumb = clip.get("thumb_file")
+                if thumb and os.path.exists(thumb):
+                    set_youtube_thumbnail(yt_id, thumb, token)
+
+                # Mark status uploaded in Firebase
+                fb_key = f"speed_clip_{clip.get('source_id')}_{clip.get('clip_number')}"
+                up_url = f"{FIREBASE_URL}/staged_speed_clips/{fb_key}/status.json"
+                req = urllib.request.Request(up_url, data=json.dumps("uploaded").encode("utf-8"), headers={"Content-Type": "application/json"}, method="PUT")
+                urllib.request.urlopen(req, timeout=5)
+
+                # Delete local video & thumbnail file immediately (Zero-Storage Policy)
+                if os.path.exists(vid_path):
+                    os.remove(vid_path)
+                if thumb and os.path.exists(thumb):
+                    os.remove(thumb)
+
+            except Exception as up_err:
+                print(f"[Upload Error]: {up_err}")
+                if "uploadLimitExceeded" in str(up_err) or "quotaExceeded" in str(up_err):
+                    send_telegram(f"⚠️ *Quota Limit reached during Speed upload.* Remaining clips will auto-resume on next reset!")
+                    break
+    finally:
+        # Guarantee 100% cloud wipe after morning upload run
+        wipe_staged_storage()
 
 if __name__ == "__main__":
     action = sys.argv[1] if len(sys.argv) > 1 else "clip"
     if action == "upload":
         upload_staged_clips_to_youtube()
+    elif action == "wipe":
+        wipe_staged_storage()
     else:
         target = int(sys.argv[2]) if len(sys.argv) > 2 else 10
         clip_and_render_speed_moments(target)

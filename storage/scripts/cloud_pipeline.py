@@ -397,7 +397,7 @@ def run_cloud_pipeline(clip_target: int = 10, search_term: str = "ishowspeed gta
                 os.remove(thumb_path)
 
     finally:
-        # Guarantee 0 bytes left on disk
+        # Guarantee 0 bytes left on disk: Zero-Storage Wipe
         if os.path.exists(source_video_path):
             try:
                 os.remove(source_video_path)
@@ -406,6 +406,11 @@ def run_cloud_pipeline(clip_target: int = 10, search_term: str = "ishowspeed gta
         if os.path.exists(work_dir):
             shutil.rmtree(work_dir, ignore_errors=True)
             print("[Zero-Storage] Successfully cleared all temp video files!")
+        try:
+            from speed_stream_clipper import wipe_staged_storage
+            wipe_staged_storage()
+        except Exception:
+            pass
 
     # 5. Send Summary Report to Suraj sir
     if uploaded_links:

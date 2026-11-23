@@ -65,9 +65,9 @@ def main():
                 last_triggers[key] = True
                 trigger_pipeline("daily_multi_channel_drive.yml")
 
-        # Slot 3: 12:30 UTC (6:00 PM IST) -> Evening 24-hr Rolling Reset Batch
-        if utc_hour == 12 and 30 <= utc_minute <= 45:
-            key = f"drive_{today_date}_slot2"
+        # Slot 3: 13:00 UTC (6:30 PM IST) -> Evening 24-hr Rolling Reset Batch (Unlock Time)
+        if (utc_hour == 13 and 0 <= utc_minute <= 20) or (utc_hour == 13 and 35 <= utc_minute <= 50):
+            key = f"drive_{today_date}_slot_{utc_hour}_{1 if utc_minute < 30 else 2}"
             if key not in last_triggers:
                 last_triggers[key] = True
                 trigger_pipeline("daily_multi_channel_drive.yml")

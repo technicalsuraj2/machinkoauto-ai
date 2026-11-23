@@ -881,9 +881,13 @@ async def run_client():
             await client.run_until_disconnected()
 
         except Exception as err:
-            print(f"[Executive Userbot Error / Disconnected]: {err}")
+            err_str = str(err)
+            print(f"[Executive Userbot Error / Disconnected]: {err_str}")
             traceback.print_exc()
-            await asyncio.sleep(5)
+            if "AuthKeyDuplicated" in err_str:
+                await asyncio.sleep(60)
+            else:
+                await asyncio.sleep(5)
 
 if __name__ == "__main__":
     asyncio.run(run_client())

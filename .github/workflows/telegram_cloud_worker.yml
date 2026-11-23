@@ -2,9 +2,6 @@ name: 24/7 Telegram AI Executive Manager Cloud Daemon
 
 on:
   workflow_dispatch:
-  schedule:
-    # Backup safety net triggers every 2 hours
-    - cron: '0 */2 * * *'
 
 permissions:
   actions: write
@@ -12,13 +9,13 @@ permissions:
 
 concurrency:
   group: telegram-manager-cloud
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   run-telegram-ai:
     name: Run 24/7 Telegram Manager Daemon
     runs-on: ubuntu-latest
-    timeout-minutes: 270
+    timeout-minutes: 340
 
     steps:
       - name: Checkout Code

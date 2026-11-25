@@ -5,6 +5,7 @@ import time
 import subprocess
 import urllib.request
 import urllib.parse
+import urllib.error
 from dotenv import load_dotenv
 
 # ==========================================
@@ -493,6 +494,12 @@ def upload_staged_clips_to_youtube():
                 if thumb and os.path.exists(thumb):
                     os.remove(thumb)
 
+            except urllib.error.HTTPError as http_err:
+                err_body = http_err.read().decode("utf-8", errors="ignore")
+                print(f"[Upload HTTPError {http_err.code}]: {err_body}")
+                if "uploadLimitExceeded" in err_body or "quotaExceeded" in err_body:
+                    send_telegram(f"⚠️ *[GTA6-INDIA] YouTube Limit Reached:* {err_body[:200]}\nRemaining clips will auto-upload on next reset!")
+                    break
             except Exception as up_err:
                 print(f"[Upload Error]: {up_err}")
                 if "uploadLimitExceeded" in str(up_err) or "quotaExceeded" in str(up_err):

@@ -213,13 +213,14 @@ def clip_and_render_speed_moments(target_clips: int = 10) -> list:
 
         print(f"[{i+1}/{target_clips}] Downloading 1080p HD section {sec_range} for '{headline}'...")
 
-        # 1. Download only the 35s clip directly in true 1080p HD
+        # 1. Download true 1080p60fps HD (allow VP9/AV1/MP4 so yt-dlp never downgrades to 720p/480p)
         dl_cmd = [
             "yt-dlp",
             "--extractor-args", "youtube:player_client=android,ios,web",
             "--no-check-certificates",
             "--download-sections", sec_range,
-            "-f", "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
+            "-f", "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
+            "--merge-output-format", "mp4",
             "--force-overwrites",
             "-o", raw_part,
             stream_url
@@ -255,7 +256,7 @@ def clip_and_render_speed_moments(target_clips: int = 10) -> list:
         filter_complex = (
             f"[0:v]split=2[bg_in][fg_in];"
             f"[bg_in]scale=270:480:force_original_aspect_ratio=increase,crop=270:480,boxblur=8:2,scale=1080:1920,eq=brightness=-0.08[bg];"
-            f"[fg_in]scale=1080:-2:flags=lanczos[fg];"
+            f"[fg_in]scale=1080:-2:flags=lanczos,unsharp=5:5:0.8:5:5:0.0[fg];"
             f"[bg][fg]overlay=(W-w)/2:(H-h)/2,"
             f"drawtext=fontfile='{font_filter_path}':text='{headline}':fontsize=62:fontcolor=yellow:borderw=7:bordercolor=black:x=(w-text_w)/2:y=220,"
             f"drawtext=fontfile='{font_filter_path}':text='SUBSCRIBE @GTA6-INDIA':fontsize=46:fontcolor=white:borderw=5:bordercolor=black:x=(w-text_w)/2:y=h-280[outv]"
@@ -541,8 +542,8 @@ def send_sample_to_telegram():
             print(f"[Telegram {endpoint}]", res.read().decode("utf-8"))
 
     try:
-        _post_media("sendVideo", "video", clip.get("local_file"), "🎬 SAMPLE Ultra HD 1080x1920 (Facecam-Safe + @GTA6-INDIA Caption) — Check karke batayein Suraj sir!")
-        _post_media("sendPhoto", "photo", clip.get("thumb_file"), "🖼️ SAMPLE Agnes AI Viral Thumbnail — Check karke batayein Suraj sir!")
+        _post_media("sendDocument", "document", clip.get("local_file"), "🎬 SAMPLE Ultra HD 1080x1920 Uncompressed (Facecam-Safe + @GTA6-INDIA Caption) — Check karke batayein Suraj sir!")
+        _post_media("sendPhoto", "photo", clip.get("thumb_file"), "🖼️ SAMPLE Agnes AI Viral Thumbnail (/sockingthumbnail) — Check karke batayein Suraj sir!")
     finally:
         wipe_staged_storage()
 

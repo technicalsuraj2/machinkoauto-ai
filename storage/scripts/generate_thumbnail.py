@@ -17,29 +17,19 @@ def generate_with_agnes_ai(title, clip_index, output_path):
         return False
         
     clean_title = title.replace("#Shorts", "").replace("#shorts", "").replace("#viral", "").strip()
-    lower_title = clean_title.lower()
-    
-    # User's exact prompt format:
-    # 1. If MrBeast / Challenge: /pointingtumbnail ratio 9.16 topic :- 50M doller challge appected by ishowspeed
-    # 2. If IShowSpeed / Shocking: /shokingthumbnail ratio 9.16 topic:- what happend in live streem
-    is_mrbeast = any(k in lower_title for k in ["mrbeast", "beast", "challenge", "dollar", "$", "million", "survive", "win", "bounty"])
-    is_speed = any(k in lower_title for k in ["speed", "ishowspeed", "rage", "scream", "live", "stream", "bark"])
-    
-    if is_mrbeast:
-        style = "pointingtumbnail"
-        topic = clean_title
-    elif is_speed:
-        style = "shokingthumbnail"
-        topic = f"what happend in live streem {clean_title}"
-    elif any(k in lower_title for k in ["shock", "crazy", "insane", "ghost", "crash", "omg", "wtf", "scary", "caught", "ending"]):
-        style = "shokingthumbnail"
-        topic = clean_title
+    # Remove emoji/special symbols that confuse Agnes AI prompt parser
+    import re
+    clean_topic = re.sub(r'[^\w\s\d\-\$\!]', '', clean_title).strip()
+    lower_title = clean_topic.lower()
+
+    # Exact Agnes AI command syntax requested by Suraj sir:
+    # /sockingthumbnail ratio : 916 topic : <topic> stremer : <streamer>
+    if any(k in lower_title for k in ["speed", "ishowspeed", "gta", "rage", "scream", "live", "stream", "bark", "mistake", "fails", "police"]):
+        prompt = f"/sockingthumbnail ratio : 916 topic : {clean_topic} stremer : ishowspeed"
+    elif any(k in lower_title for k in ["mrbeast", "beast", "challenge", "dollar", "million"]):
+        prompt = f"/pointingtumbnail ratio : 916 topic : {clean_topic} stremer : mrbeast"
     else:
-        # Balanced alternate between pointing and shocking
-        style = "pointingtumbnail" if (clip_index % 2 == 1) else "shokingthumbnail"
-        topic = clean_title
-        
-    prompt = f"/{style} ratio 9.16 topic :- {topic}"
+        prompt = f"/sockingthumbnail ratio : 916 topic : {clean_topic} stremer : gaming"
     print(f"[Agnes AI] Generating thumbnail with prompt: '{prompt}'...")
     
     req_payload = {

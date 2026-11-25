@@ -336,11 +336,24 @@ def clip_and_render_speed_moments(target_clips: int = 10) -> list:
 # 3. Morning Upload Dispatcher (5:30 AM IST)
 # ==========================================
 def get_youtube_access_token():
+    """Exchange refresh token for fresh YouTube API access token (prefers per-channel credentials in Firebase)"""
+    cid, csec, rtok = CLIENT_ID, CLIENT_SECRET, REFRESH_TOKEN
+    try:
+        fb_url = f"{FIREBASE_URL}/channels/UCOkeAWVV2ES-p9-75e2QH3A.json"
+        with urllib.request.urlopen(fb_url, timeout=6) as res:
+            ch_cfg = json.loads(res.read().decode("utf-8") or "{}")
+            if ch_cfg.get("clientId") and ch_cfg.get("clientSecret") and ch_cfg.get("refreshToken"):
+                cid = ch_cfg["clientId"]
+                csec = ch_cfg["clientSecret"]
+                rtok = ch_cfg["refreshToken"]
+    except Exception:
+        pass
+
     url = "https://oauth2.googleapis.com/token"
     payload = urllib.parse.urlencode({
-        "client_id": CLIENT_ID,
-        "client_secret": CLIENT_SECRET,
-        "refresh_token": REFRESH_TOKEN,
+        "client_id": cid,
+        "client_secret": csec,
+        "refresh_token": rtok,
         "grant_type": "refresh_token"
     }).encode("utf-8")
     req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/x-www-form-urlencoded"})

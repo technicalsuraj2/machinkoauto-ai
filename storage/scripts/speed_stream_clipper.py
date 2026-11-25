@@ -509,12 +509,51 @@ def upload_staged_clips_to_youtube():
         # Guarantee 100% cloud wipe after morning upload run
         wipe_staged_storage()
 
+def send_sample_to_telegram():
+    """Render 1 Ultra HD sample clip + Agnes AI thumbnail, send to Suraj sir on Telegram, then wipe"""
+    import mimetypes
+    clips = clip_and_render_speed_moments(1)
+    if not clips or not BOT_TOKEN:
+        wipe_staged_storage()
+        return
+
+    clip = clips[0]
+    def _post_media(endpoint, field, filepath, caption):
+        if not filepath or not os.path.exists(filepath):
+            return
+        boundary = "----TBOT_SAMPLE_BOUNDARY"
+        with open(filepath, "rb") as f:
+            data_bytes = f.read()
+        body = bytearray()
+        body.extend(f"--{boundary}\r\nContent-Disposition: form-data; name=\"chat_id\"\r\n\r\n{CREATOR_ID}\r\n".encode())
+        body.extend(f"--{boundary}\r\nContent-Disposition: form-data; name=\"caption\"\r\n\r\n{caption}\r\n".encode())
+        fname = os.path.basename(filepath)
+        ctype = mimetypes.guess_type(filepath)[0] or "application/octet-stream"
+        body.extend(f"--{boundary}\r\nContent-Disposition: form-data; name=\"{field}\"; filename=\"{fname}\"\r\nContent-Type: {ctype}\r\n\r\n".encode())
+        body.extend(data_bytes)
+        body.extend(f"\r\n--{boundary}--\r\n".encode())
+        req = urllib.request.Request(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/{endpoint}",
+            data=body,
+            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"}
+        )
+        with urllib.request.urlopen(req, timeout=90) as res:
+            print(f"[Telegram {endpoint}]", res.read().decode("utf-8"))
+
+    try:
+        _post_media("sendVideo", "video", clip.get("local_file"), "🎬 SAMPLE Ultra HD 1080x1920 (Facecam-Safe + @GTA6-INDIA Caption) — Check karke batayein Suraj sir!")
+        _post_media("sendPhoto", "photo", clip.get("thumb_file"), "🖼️ SAMPLE Agnes AI Viral Thumbnail — Check karke batayein Suraj sir!")
+    finally:
+        wipe_staged_storage()
+
 if __name__ == "__main__":
     action = sys.argv[1] if len(sys.argv) > 1 else "clip"
     if action == "upload":
         upload_staged_clips_to_youtube()
     elif action == "wipe":
         wipe_staged_storage()
+    elif action == "send_sample":
+        send_sample_to_telegram()
     elif action == "clip_and_upload":
         target = int(sys.argv[2]) if len(sys.argv) > 2 else 6
         clip_and_render_speed_moments(target)

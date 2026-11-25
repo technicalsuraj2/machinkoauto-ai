@@ -203,12 +203,57 @@ def download_drive_video(file_id: str, dest_path: str, drive_token: str):
                 break
             f.write(chunk)
 
-def edit_video_clip(input_path: str, output_path: str) -> bool:
-    """Edit video: 720x1280 vertical framing, anti-Content-ID audio shift, optimized bitrate, no watermark"""
+def set_youtube_thumbnail(video_id: str, image_path: str, access_token: str) -> bool:
+    """Upload AI-generated custom thumbnail to YouTube video"""
+    if not os.path.exists(image_path):
+        return False
+    try:
+        url = f"https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId={video_id}&uploadType=media"
+        with open(image_path, "rb") as f:
+            img_data = f.read()
+        req = urllib.request.Request(
+            url,
+            data=img_data,
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "image/jpeg"
+            },
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=25) as res:
+            res.read()
+        print(f"[Thumbnail Success] Uploaded AI thumbnail for {video_id}")
+        return True
+    except Exception as e:
+        print(f"[Thumbnail Notice] {video_id}: {e}")
+        return False
+
+def edit_video_clip(input_path: str, output_path: str, channel_name: str = "AutoTube", headline: str = "") -> bool:
+    """Edit video: 720x1280 vertical framing, channel name anti-copy caption, and audio shift"""
+    font_file = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "fonts", "impact.ttf"))
+    if not os.path.exists(font_file):
+        font_file = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+    font_filter_path = font_file.replace("\\", "/").replace(":", "\\:")
+
+    safe_ch = channel_name.replace("'", "").replace(":", "").strip()
+    vf_parts = [
+        "scale=720:1280:force_original_aspect_ratio=decrease",
+        "pad=720:1280:(ow-iw)/2:(oh-ih)/2",
+        "eq=contrast=1.04:saturation=1.05"
+    ]
+    if headline:
+        safe_hl = headline.replace("'", "").replace(":", "").strip()
+        vf_parts.append(
+            f"drawtext=fontfile='{font_filter_path}':text='{safe_hl}':fontsize=40:fontcolor=yellow:borderw=4:bordercolor=black:x=(w-text_w)/2:y=110"
+        )
+    vf_parts.append(
+        f"drawtext=fontfile='{font_filter_path}':text='@{safe_ch}':fontsize=34:fontcolor=white@0.92:borderw=4:bordercolor=black:x=(w-text_w)/2:y=h-190"
+    )
+
     cmd = [
         "ffmpeg", "-y",
         "-i", input_path,
-        "-vf", "scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2,eq=contrast=1.04:saturation=1.05",
+        "-vf", ",".join(vf_parts),
         "-af", "atempo=1.03",
         "-c:v", "libx264",
         "-preset", "veryfast",
@@ -433,18 +478,27 @@ def run_pipeline(videos_per_channel: int = 1, target_channel: str = None):
                 )
                 download_drive_video(file_id, temp_raw, drive_token)
 
-                # Step 2: Edit
+                # Step 2: Edit + AI Thumbnail
                 if check_stop_flag(ch_id):
                     break
-                print(f"[{ch_name}] Editing video (9:16 vertical crop, audio tuning, no watermark)...")
+                print(f"[{ch_name}] Editing video (9:16 vertical crop, @{ch_name} anti-copy caption, audio tuning)...")
                 send_telegram(
-                    f"🎬 *[{ch_name}] Step 2/3: Editing Video*\n"
+                    f"🎬 *[{ch_name}] Step 2/3: Editing Video & AI Thumbnail*\n"
                     f"• Applying 9:16 Vertical Framing\n"
-                    f"• Anti-Content-ID Audio Tuning (1.03x)\n"
-                    f"• Watermark: None (Channel Name Skipped per instruction)"
+                    f"• Anti-Copy Channel Caption: `@{ch_name}` ✅\n"
+                    f"• Generating High-CTR Agnes AI Thumbnail..."
                 )
-                edit_ok = edit_video_clip(temp_raw, temp_edited)
+                edit_ok = edit_video_clip(temp_raw, temp_edited, ch_name, raw_title)
                 upload_file = temp_edited if edit_ok else temp_raw
+
+                temp_thumb = os.path.abspath(f"temp_thumb_{file_id}.jpg")
+                try:
+                    if os.path.dirname(__file__) not in sys.path:
+                        sys.path.insert(0, os.path.dirname(__file__))
+                    from generate_thumbnail import generate_with_agnes_ai
+                    generate_with_agnes_ai(raw_title, file_index, temp_thumb)
+                except Exception as th_err:
+                    print(f"[AI Thumb Notice] {th_err}")
 
                 # Step 3: Upload
                 if check_stop_flag(ch_id):
@@ -453,11 +507,18 @@ def run_pipeline(videos_per_channel: int = 1, target_channel: str = None):
                 send_telegram(
                     f"🚀 *[{ch_name}] Step 3/3: Uploading to YouTube*\n"
                     f"• Title: *{raw_title}*\n"
-                    f"• Format: YouTube Short (#Shorts)"
+                    f"• Format: YouTube Short (#Shorts) + AI Thumbnail"
                 )
 
                 ch_access_token = get_access_token(ch_refresh, ch_client_id, ch_client_secret)
                 yt_video_id = upload_to_youtube(upload_file, raw_title, ch_access_token)
+
+                if os.path.exists(temp_thumb):
+                    set_youtube_thumbnail(yt_video_id, temp_thumb, ch_access_token)
+                    try:
+                        os.remove(temp_thumb)
+                    except Exception:
+                        pass
 
                 # Success Notification
                 video_url = f"https://youtu.be/{yt_video_id}"

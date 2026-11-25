@@ -273,21 +273,31 @@ def clip_and_render_speed_moments(target_clips: int = 10) -> list:
             print(f"[FFmpeg Error Clip #{i+1}]: {ff_err}")
             continue
 
-        # 3. Create Viral HD Thumbnail
+        # 3. Create Viral HD Thumbnail (Agnes AI first, FFmpeg frame fallback)
+        thumb_ok = False
         try:
-            thumb_filter = f"drawtext=fontfile='{font_filter_path}':text='{headline}':fontsize=76:fontcolor=yellow:borderw=7:bordercolor=black:x=(w-text_w)/2:y=(h-text_h)/2"
-            thumb_cmd = [
-                "ffmpeg", "-y",
-                "-ss", "00:00:02",
-                "-i", out_clip,
-                "-vframes", "1",
-                "-vf", thumb_filter,
-                "-q:v", "2",
-                thumb_path
-            ]
-            subprocess.run(thumb_cmd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception:
-            pass
+            if os.path.dirname(__file__) not in sys.path:
+                sys.path.insert(0, os.path.dirname(__file__))
+            from generate_thumbnail import generate_with_agnes_ai
+            thumb_ok = generate_with_agnes_ai(headline, i + 1, thumb_path)
+        except Exception as ag_err:
+            print(f"[Agnes AI Thumb Notice] {ag_err}")
+
+        if not thumb_ok:
+            try:
+                thumb_filter = f"drawtext=fontfile='{font_filter_path}':text='{headline}':fontsize=76:fontcolor=yellow:borderw=7:bordercolor=black:x=(w-text_w)/2:y=(h-text_h)/2"
+                thumb_cmd = [
+                    "ffmpeg", "-y",
+                    "-ss", "00:00:02",
+                    "-i", out_clip,
+                    "-vframes", "1",
+                    "-vf", thumb_filter,
+                    "-q:v", "2",
+                    thumb_path
+                ]
+                subprocess.run(thumb_cmd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception:
+                pass
 
         # Cleanup raw part (Zero-Storage Policy)
         try:

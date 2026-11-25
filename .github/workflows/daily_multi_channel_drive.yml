@@ -29,11 +29,11 @@ jobs:
       - name: Install FFmpeg & System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
 
       - name: Install Python Dependencies
         run: |
-          pip install python-dotenv
+          pip install python-dotenv pillow
 
       - name: Execute Multi-Channel Drive Pipeline
         env:
@@ -42,5 +42,6 @@ jobs:
           FIREBASE_DATABASE_URL: ${{ secrets.FIREBASE_DATABASE_URL }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CREATOR_ID: ${{ secrets.TELEGRAM_CREATOR_ID }}
+          AGNES_API_KEY: ${{ secrets.AGNES_API_KEY }}
         run: |
           python -u storage/scripts/multi_channel_pipeline.py ${{ github.event.inputs.videos_per_channel || 10 }}

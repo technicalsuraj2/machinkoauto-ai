@@ -249,21 +249,28 @@ def clip_and_render_speed_moments(target_clips: int = 10) -> list:
             print(f"[{i+1}] Skipped: Raw video section not downloaded.")
             continue
 
-        # 2. Render 1080x1920 9:16 Vertical Crop with Bold Captions
-        print(f"[{i+1}/{target_clips}] Rendering 1080x1920 9:16 with viral caption...")
-        vf_filter = (
-            f"crop=ih*9/16:ih:(iw-ih*9/16)/2:0,scale=1080:1920,"
-            f"drawtext=fontfile='{font_filter_path}':text='{headline}':fontsize=64:fontcolor=yellow:borderw=7:bordercolor=black:x=(w-text_w)/2:y=240,"
-            f"drawtext=fontfile='{font_filter_path}':text='SUBSCRIBE @GTA6-INDIA':fontsize=44:fontcolor=white:borderw=5:bordercolor=black:x=(w-text_w)/2:y=h-360"
+        # 2. Render Ultra HD 1080x1920 (Full-width sharp foreground so IShowSpeed facecam is ALWAYS visible + blurred HD bg)
+        print(f"[{i+1}/{target_clips}] Rendering Ultra HD 1080x1920 (Facecam-safe) with viral caption...")
+        filter_complex = (
+            f"[0:v]split=2[bg_in][fg_in];"
+            f"[bg_in]scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920,boxblur=20:5,eq=brightness=-0.08[bg];"
+            f"[fg_in]scale=1080:-2:flags=lanczos[fg];"
+            f"[bg][fg]overlay=(W-w)/2:(H-h)/2,"
+            f"drawtext=fontfile='{font_filter_path}':text='{headline}':fontsize=62:fontcolor=yellow:borderw=7:bordercolor=black:x=(w-text_w)/2:y=220,"
+            f"drawtext=fontfile='{font_filter_path}':text='SUBSCRIBE @GTA6-INDIA':fontsize=46:fontcolor=white:borderw=5:bordercolor=black:x=(w-text_w)/2:y=h-280[outv]"
         )
 
         ff_cmd = [
             "ffmpeg", "-y",
             "-i", raw_part,
-            "-vf", vf_filter,
+            "-filter_complex", filter_complex,
+            "-map", "[outv]",
+            "-map", "0:a?",
             "-af", "atempo=1.02",
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
-            "-c:a", "aac", "-b:a", "128k",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "17",
+            "-b:v", "8000k", "-maxrate", "10000k", "-bufsize", "14000k",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "192k",
             out_clip
         ]
 

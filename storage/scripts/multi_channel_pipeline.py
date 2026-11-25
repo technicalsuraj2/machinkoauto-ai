@@ -229,7 +229,7 @@ def set_youtube_thumbnail(video_id: str, image_path: str, access_token: str) -> 
         return False
 
 def edit_video_clip(input_path: str, output_path: str, channel_name: str = "AutoTube", headline: str = "") -> bool:
-    """Edit video: 720x1280 vertical framing, channel name anti-copy caption, and audio shift"""
+    """Edit video: Ultra HD 1080x1920 vertical framing, channel name anti-copy caption, high bitrate"""
     font_file = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "fonts", "impact.ttf"))
     if not os.path.exists(font_file):
         font_file = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
@@ -237,17 +237,17 @@ def edit_video_clip(input_path: str, output_path: str, channel_name: str = "Auto
 
     safe_ch = channel_name.replace("'", "").replace(":", "").strip()
     vf_parts = [
-        "scale=720:1280:force_original_aspect_ratio=decrease",
-        "pad=720:1280:(ow-iw)/2:(oh-ih)/2",
-        "eq=contrast=1.04:saturation=1.05"
+        "scale=1080:1920:force_original_aspect_ratio=decrease:flags=lanczos",
+        "pad=1080:1920:(ow-iw)/2:(oh-ih)/2",
+        "eq=contrast=1.05:saturation=1.06"
     ]
     if headline:
         safe_hl = headline.replace("'", "").replace(":", "").strip()
         vf_parts.append(
-            f"drawtext=fontfile='{font_filter_path}':text='{safe_hl}':fontsize=40:fontcolor=yellow:borderw=4:bordercolor=black:x=(w-text_w)/2:y=110"
+            f"drawtext=fontfile='{font_filter_path}':text='{safe_hl}':fontsize=56:fontcolor=yellow:borderw=6:bordercolor=black:x=(w-text_w)/2:y=150"
         )
     vf_parts.append(
-        f"drawtext=fontfile='{font_filter_path}':text='@{safe_ch}':fontsize=34:fontcolor=white@0.92:borderw=4:bordercolor=black:x=(w-text_w)/2:y=h-190"
+        f"drawtext=fontfile='{font_filter_path}':text='@{safe_ch}':fontsize=44:fontcolor=white@0.94:borderw=5:bordercolor=black:x=(w-text_w)/2:y=h-250"
     )
 
     cmd = [
@@ -256,13 +256,14 @@ def edit_video_clip(input_path: str, output_path: str, channel_name: str = "Auto
         "-vf", ",".join(vf_parts),
         "-af", "atempo=1.03",
         "-c:v", "libx264",
-        "-preset", "veryfast",
-        "-crf", "24",
-        "-b:v", "2000k",
-        "-maxrate", "2800k",
-        "-bufsize", "4000k",
+        "-preset", "fast",
+        "-crf", "18",
+        "-b:v", "6000k",
+        "-maxrate", "8500k",
+        "-bufsize", "12000k",
+        "-pix_fmt", "yuv420p",
         "-c:a", "aac",
-        "-b:a", "128k",
+        "-b:a", "192k",
         "-max_muxing_queue_size", "1024",
         output_path
     ]

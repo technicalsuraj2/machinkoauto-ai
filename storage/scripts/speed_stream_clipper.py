@@ -427,6 +427,8 @@ def upload_staged_clips_to_youtube():
         print(f"[OAuth Token Error] {t_err}")
         return
 
+    if os.path.dirname(__file__) not in sys.path:
+        sys.path.insert(0, os.path.dirname(__file__))
     from cloud_pipeline import upload_youtube_short, set_youtube_thumbnail, sync_to_firebase
 
     try:
@@ -481,6 +483,10 @@ if __name__ == "__main__":
         upload_staged_clips_to_youtube()
     elif action == "wipe":
         wipe_staged_storage()
+    elif action == "clip_and_upload":
+        target = int(sys.argv[2]) if len(sys.argv) > 2 else 6
+        clip_and_render_speed_moments(target)
+        upload_staged_clips_to_youtube()
     else:
         target = int(sys.argv[2]) if len(sys.argv) > 2 else 10
         clip_and_render_speed_moments(target)

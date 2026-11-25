@@ -85,15 +85,21 @@ def main():
     print("[Handoff] 5 hours reached. Disconnecting userbot session...")
     try:
         p1.terminate()
-        p1.wait(timeout=10)
+        p1.wait(timeout=8)
     except Exception:
-        pass
+        try:
+            p1.kill()
+        except Exception:
+            pass
 
     try:
         p2.terminate()
-        p2.wait(timeout=10)
+        p2.wait(timeout=8)
     except Exception:
-        pass
+        try:
+            p2.kill()
+        except Exception:
+            pass
 
     # Wait 45 seconds for all MTProto TCP sockets to fully close on Telegram servers
     print("[Handoff] Waiting 45s to prevent AuthKeyDuplicatedError across runners...")
@@ -107,9 +113,7 @@ def main():
         print(f"[Handoff Notice] {e}")
 
     print("[Handoff] Gracefully exiting. Successor has been launched!")
-
-if __name__ == "__main__":
-    main()
+    sys.exit(0)
 
 if __name__ == "__main__":
     main()

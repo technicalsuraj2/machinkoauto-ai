@@ -8,8 +8,8 @@ import subprocess
 
 FIREBASE_URL = "https://ai-agent-24af3-default-rtdb.firebaseio.com"
 
-def run_oauth_server(client_id: str, client_secret: str, expected_channel_id: str = ""):
-    redirect_uri = "http://localhost:8080"
+def run_oauth_server(client_id: str, client_secret: str, expected_channel_id: str = "", port: int = 8080, path: str = ""):
+    redirect_uri = f"http://localhost:{port}{path}"
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
@@ -105,7 +105,7 @@ def run_oauth_server(client_id: str, client_secret: str, expected_channel_id: st
         def log_message(self, format, *args):
             pass
 
-    with socketserver.TCPServer(("", 8080), Handler) as httpd:
+    with socketserver.TCPServer(("", port), Handler) as httpd:
         print(f"Listening on {redirect_uri} for OAuth callback...")
         try:
             httpd.serve_forever()
@@ -116,4 +116,6 @@ if __name__ == "__main__":
     cid = sys.argv[1]
     csec = sys.argv[2]
     exp_ch = sys.argv[3] if len(sys.argv) > 3 else ""
-    run_oauth_server(cid, csec, exp_ch)
+    port = int(sys.argv[4]) if len(sys.argv) > 4 else 8080
+    path = sys.argv[5] if len(sys.argv) > 5 else ""
+    run_oauth_server(cid, csec, exp_ch, port, path)

@@ -479,27 +479,18 @@ def run_pipeline(videos_per_channel: int = 1, target_channel: str = None):
                 )
                 download_drive_video(file_id, temp_raw, drive_token)
 
-                # Step 2: Edit + AI Thumbnail
+                # Step 2: Edit
                 if check_stop_flag(ch_id):
                     break
-                print(f"[{ch_name}] Editing video (9:16 vertical crop, @{ch_name} anti-copy caption, audio tuning)...")
+                print(f"[{ch_name}] Editing video (Ultra HD 1080x1920, @{ch_name} anti-copy caption, audio tuning)...")
                 send_telegram(
-                    f"🎬 *[{ch_name}] Step 2/3: Editing Video & AI Thumbnail*\n"
-                    f"• Applying 9:16 Vertical Framing\n"
+                    f"🎬 *[{ch_name}] Step 2/3: Editing Video (Ultra HD)*\n"
+                    f"• Applying Ultra HD 1080×1920 Framing\n"
                     f"• Anti-Copy Channel Caption: `@{ch_name}` ✅\n"
-                    f"• Generating High-CTR Agnes AI Thumbnail..."
+                    f"• Thumbnail: Auto-Frame (Custom AI Thumbnail Paused)"
                 )
                 edit_ok = edit_video_clip(temp_raw, temp_edited, ch_name, raw_title)
                 upload_file = temp_edited if edit_ok else temp_raw
-
-                temp_thumb = os.path.abspath(f"temp_thumb_{file_id}.jpg")
-                try:
-                    if os.path.dirname(__file__) not in sys.path:
-                        sys.path.insert(0, os.path.dirname(__file__))
-                    from generate_thumbnail import generate_with_agnes_ai
-                    generate_with_agnes_ai(raw_title, file_index, temp_thumb)
-                except Exception as th_err:
-                    print(f"[AI Thumb Notice] {th_err}")
 
                 # Step 3: Upload
                 if check_stop_flag(ch_id):
@@ -508,18 +499,11 @@ def run_pipeline(videos_per_channel: int = 1, target_channel: str = None):
                 send_telegram(
                     f"🚀 *[{ch_name}] Step 3/3: Uploading to YouTube*\n"
                     f"• Title: *{raw_title}*\n"
-                    f"• Format: YouTube Short (#Shorts) + AI Thumbnail"
+                    f"• Format: Ultra HD YouTube Short (#Shorts)"
                 )
 
                 ch_access_token = get_access_token(ch_refresh, ch_client_id, ch_client_secret)
                 yt_video_id = upload_to_youtube(upload_file, raw_title, ch_access_token)
-
-                if os.path.exists(temp_thumb):
-                    set_youtube_thumbnail(yt_video_id, temp_thumb, ch_access_token)
-                    try:
-                        os.remove(temp_thumb)
-                    except Exception:
-                        pass
 
                 # Success Notification
                 video_url = f"https://youtu.be/{yt_video_id}"

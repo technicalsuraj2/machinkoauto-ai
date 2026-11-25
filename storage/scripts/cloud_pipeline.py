@@ -393,9 +393,8 @@ def run_cloud_pipeline(clip_target: int = 10, search_term: str = "ishowspeed gta
                 sync_to_firebase(yt_id, clip_title)
                 send_telegram(f"✅ *Clip #{i+1} LIVE on YouTube!* 🚀\n🔗 {live_url}")
 
-                # Set custom thumbnail via YouTube API
-                if os.path.exists(thumb_path):
-                    set_youtube_thumbnail(yt_id, thumb_path, access_token)
+                # Custom thumbnail paused per owner instruction
+                # (YouTube auto-selects crisp HD video frame)
 
             except Exception as up_err:
                 print(f"Upload error for clip #{i+1}: {up_err}")

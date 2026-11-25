@@ -58,12 +58,12 @@ def send_telegram(text: str):
         except Exception as e:
             print(f"[Telegram Alert Error] {e}")
 
-def get_access_token(refresh_token: str) -> str:
-    """Exchange refresh token for fresh Google OAuth access token"""
+def get_access_token(refresh_token: str, client_id: str = None, client_secret: str = None) -> str:
+    """Exchange refresh token for fresh Google OAuth access token (supports per-channel GCP project credentials)"""
     url = "https://oauth2.googleapis.com/token"
     payload = urllib.parse.urlencode({
-        "client_id": CLIENT_ID,
-        "client_secret": CLIENT_SECRET,
+        "client_id": client_id or CLIENT_ID,
+        "client_secret": client_secret or CLIENT_SECRET,
         "refresh_token": refresh_token,
         "grant_type": "refresh_token"
     }).encode("utf-8")
@@ -353,10 +353,12 @@ def run_pipeline(videos_per_channel: int = 1, target_channel: str = None):
         ch_name = ch.get("channelName", "YouTube Channel").strip()
         ch_id = ch.get("channelId")
         ch_refresh = ch.get("refreshToken")
+        ch_client_id = ch.get("clientId")
+        ch_client_secret = ch.get("clientSecret")
 
         # Auto-sync live channel title from YouTube API if renamed
         try:
-            tok = get_access_token(ch_refresh)
+            tok = get_access_token(ch_refresh, ch_client_id, ch_client_secret)
             req_snip = urllib.request.Request("https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true", headers={"Authorization": f"Bearer {tok}"})
             with urllib.request.urlopen(req_snip, timeout=8) as r_snip:
                 d_snip = json.loads(r_snip.read().decode("utf-8"))
@@ -441,7 +443,7 @@ def run_pipeline(videos_per_channel: int = 1, target_channel: str = None):
                     f"• Format: YouTube Short (#Shorts)"
                 )
 
-                ch_access_token = get_access_token(ch_refresh)
+                ch_access_token = get_access_token(ch_refresh, ch_client_id, ch_client_secret)
                 yt_video_id = upload_to_youtube(upload_file, raw_title, ch_access_token)
 
                 # Success Notification

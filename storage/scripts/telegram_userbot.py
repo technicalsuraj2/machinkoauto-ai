@@ -198,11 +198,11 @@ def match_channel(text: str) -> dict | None:
 # ==========================================
 # 3. Core Tools Suite (As Required)
 # ==========================================
-def get_channel_token(refresh_token: str) -> str:
+def get_channel_token(refresh_token: str, client_id: str = None, client_secret: str = None) -> str:
     url = "https://oauth2.googleapis.com/token"
     payload = urllib.parse.urlencode({
-        "client_id": GOOGLE_CLIENT_ID,
-        "client_secret": GOOGLE_CLIENT_SECRET,
+        "client_id": client_id or GOOGLE_CLIENT_ID,
+        "client_secret": client_secret or GOOGLE_CLIENT_SECRET,
         "refresh_token": refresh_token,
         "grant_type": "refresh_token"
     }).encode("utf-8")
@@ -211,10 +211,10 @@ def get_channel_token(refresh_token: str) -> str:
         data = json.loads(res.read().decode("utf-8"))
         return data["access_token"]
 
-def fetch_single_channel_fast(ch_id: str, refresh_token: str) -> dict:
+def fetch_single_channel_fast(ch_id: str, refresh_token: str, client_id: str = None, client_secret: str = None) -> dict:
     """Fetch live channel stats and auto-sync updated channel name from YouTube API"""
     try:
-        token = get_channel_token(refresh_token)
+        token = get_channel_token(refresh_token, client_id, client_secret)
         ch_url = "https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&mine=true"
         req = urllib.request.Request(ch_url, headers={"Authorization": f"Bearer {token}"})
         with urllib.request.urlopen(req, timeout=8) as res:
@@ -325,7 +325,7 @@ def get_all_channels_status() -> dict:
         for ch_id, info in channels_map.items():
             rf = info.get("refreshToken")
             if rf:
-                futures[executor.submit(fetch_single_channel_fast, ch_id, rf)] = ch_id
+                futures[executor.submit(fetch_single_channel_fast, ch_id, rf, info.get("clientId"), info.get("clientSecret"))] = ch_id
         for f in concurrent.futures.as_completed(futures):
             res = f.result()
             if res:

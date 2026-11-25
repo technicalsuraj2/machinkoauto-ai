@@ -254,7 +254,7 @@ def clip_and_render_speed_moments(target_clips: int = 10) -> list:
         print(f"[{i+1}/{target_clips}] Rendering Ultra HD 1080x1920 (Facecam-safe) with viral caption...")
         filter_complex = (
             f"[0:v]split=2[bg_in][fg_in];"
-            f"[bg_in]scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920,boxblur=20:5,eq=brightness=-0.08[bg];"
+            f"[bg_in]scale=270:480:force_original_aspect_ratio=increase,crop=270:480,boxblur=8:2,scale=1080:1920,eq=brightness=-0.08[bg];"
             f"[fg_in]scale=1080:-2:flags=lanczos[fg];"
             f"[bg][fg]overlay=(W-w)/2:(H-h)/2,"
             f"drawtext=fontfile='{font_filter_path}':text='{headline}':fontsize=62:fontcolor=yellow:borderw=7:bordercolor=black:x=(w-text_w)/2:y=220,"
@@ -268,7 +268,7 @@ def clip_and_render_speed_moments(target_clips: int = 10) -> list:
             "-map", "[outv]",
             "-map", "0:a?",
             "-af", "atempo=1.02",
-            "-c:v", "libx264", "-preset", "fast", "-crf", "17",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "17",
             "-b:v", "8000k", "-maxrate", "10000k", "-bufsize", "14000k",
             "-pix_fmt", "yuv420p",
             "-c:a", "aac", "-b:a", "192k",

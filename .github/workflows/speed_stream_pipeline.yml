@@ -47,6 +47,7 @@ jobs:
           FIREBASE_DATABASE_URL: ${{ secrets.FIREBASE_DATABASE_URL }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CREATOR_ID: ${{ secrets.TELEGRAM_CREATOR_ID }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           AGNES_API_KEY: ${{ secrets.AGNES_API_KEY }}
         run: |
           python -u storage/scripts/speed_stream_clipper.py ${{ github.event.inputs.mode || 'clip' }} ${{ github.event.inputs.clip_count || 6 }}

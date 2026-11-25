@@ -8,29 +8,83 @@ import urllib.error
 import subprocess
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
 
-def generate_with_agnes_ai(title, clip_index, output_path):
-    api_key = os.getenv("AGNES_API_KEY", "sk-9GL1xSoER4cJrAgUCPtBSSBeMm8g8Llc53m3O2Sf7eMjuP54")
-    base_url = os.getenv("AGNES_BASE_URL", "https://apihub.agnes-ai.com/v1")
-    model = os.getenv("AGNES_IMAGE_MODEL", "agnes-image-2.5-flash")
-    
+def generate_with_openrouter(prompt_text, output_path):
+    """Generate high-CTR 9:16 thumbnail using OpenRouter Recraft v4.1 Flash v2"""
+    import base64
+    api_key = os.getenv("OPENROUTER_API_KEY", "")
+    model = os.getenv("OPENROUTER_IMAGE_MODEL", "recraft/recraft-v4.1-flash-v2:free")
     if not api_key:
         return False
-        
-    clean_title = title.replace("#Shorts", "").replace("#shorts", "").replace("#viral", "").strip()
-    # Remove emoji/special symbols that confuse Agnes AI prompt parser
+
+    print(f"[OpenRouter Recraft] Generating thumbnail with prompt: '{prompt_text}'...")
+    req_payload = {
+        "model": model,
+        "prompt": prompt_text,
+        "response_format": "url"
+    }
+    req = urllib.request.Request(
+        "https://openrouter.ai/api/v1/images",
+        data=json.dumps(req_payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+    )
+    with urllib.request.urlopen(req, timeout=45) as resp:
+        result = json.loads(resp.read().decode("utf-8"))
+        data_list = result.get("data", [])
+        if data_list:
+            img_item = data_list[0]
+            temp_down = f"storage/temp_or_{int(time.time() * 1000)}.png"
+            if img_item.get("url"):
+                urllib.request.urlretrieve(img_item["url"], temp_down)
+            elif img_item.get("b64_json"):
+                with open(temp_down, "wb") as f:
+                    f.write(base64.b64decode(img_item["b64_json"]))
+            else:
+                return False
+
+            with Image.open(temp_down) as or_img:
+                rgb = or_img.convert("RGB").resize((1080, 1920), Image.Resampling.LANCZOS)
+                rgb.save(output_path, "JPEG", quality=94, subsampling=0)
+
+            if os.path.exists(temp_down):
+                try:
+                    os.remove(temp_down)
+                except Exception:
+                    pass
+            print(f"[OpenRouter Recraft] High-CTR viral thumbnail saved -> {output_path}")
+            return True
+    return False
+
+def generate_with_agnes_ai(title, clip_index, output_path):
     import re
+    clean_title = title.replace("#Shorts", "").replace("#shorts", "").replace("#viral", "").strip()
     clean_topic = re.sub(r'[^\w\s\d\-\$\!]', '', clean_title).strip()
     lower_title = clean_topic.lower()
 
-    # Exact Agnes AI command syntax requested by Suraj sir:
-    # /sockingthumbnail ratio : 916 topic : <topic> stremer : <streamer>
     if any(k in lower_title for k in ["speed", "ishowspeed", "gta", "rage", "scream", "live", "stream", "bark", "mistake", "fails", "police"]):
         prompt = f"/sockingthumbnail ratio : 916 topic : {clean_topic} stremer : ishowspeed"
     elif any(k in lower_title for k in ["mrbeast", "beast", "challenge", "dollar", "million"]):
         prompt = f"/pointingtumbnail ratio : 916 topic : {clean_topic} stremer : mrbeast"
     else:
         prompt = f"/sockingthumbnail ratio : 916 topic : {clean_topic} stremer : gaming"
-    print(f"[Agnes AI] Generating thumbnail with prompt: '{prompt}'...")
+
+    # 1. Try OpenRouter Recraft v4.1 Flash v2 first
+    try:
+        if generate_with_openrouter(prompt, output_path):
+            return True
+    except Exception as or_err:
+        print(f"[OpenRouter Notice] {or_err}, falling back...")
+
+    # 2. Fallback to Agnes AI if OpenRouter fails
+    api_key = os.getenv("AGNES_API_KEY", "sk-9GL1xSoER4cJrAgUCPtBSSBeMm8g8Llc53m3O2Sf7eMjuP54")
+    base_url = os.getenv("AGNES_BASE_URL", "https://apihub.agnes-ai.com/v1")
+    model = os.getenv("AGNES_IMAGE_MODEL", "agnes-image-2.5-flash")
+    if not api_key:
+        return False
+
+    print(f"[Agnes AI Fallback] Generating thumbnail with prompt: '{prompt}'...")
     
     req_payload = {
         "model": model,

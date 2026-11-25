@@ -72,20 +72,33 @@ def get_access_token(refresh_token: str, client_id: str = None, client_secret: s
         data = json.loads(res.read().decode("utf-8"))
         return data["access_token"]
 
-def get_drive_files(folder_id: str, drive_token: str, limit: int = 50) -> list:
-    """List video files from target Google Drive folder"""
+def get_drive_files(folder_id: str, drive_token: str, limit: int = 500) -> list:
+    """List video files from target Google Drive folder with full pagination"""
     q = f"'{folder_id}' in parents and mimeType contains 'video/' and trashed = false"
-    url = "https://www.googleapis.com/drive/v3/files?" + urllib.parse.urlencode({
-        "q": q,
-        "fields": "files(id, name, size, mimeType, videoMediaMetadata)",
-        "pageSize": limit,
-        "supportsAllDrives": "true",
-        "includeItemsFromAllDrives": "true"
-    })
-    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {drive_token}"})
-    with urllib.request.urlopen(req, timeout=20) as res:
-        data = json.loads(res.read().decode("utf-8"))
-        return data.get("files", [])
+    all_files = []
+    page_token = None
+
+    while len(all_files) < limit:
+        params = {
+            "q": q,
+            "fields": "nextPageToken, files(id, name, size, mimeType, videoMediaMetadata)",
+            "pageSize": min(200, limit - len(all_files)),
+            "supportsAllDrives": "true",
+            "includeItemsFromAllDrives": "true"
+        }
+        if page_token:
+            params["pageToken"] = page_token
+
+        url = "https://www.googleapis.com/drive/v3/files?" + urllib.parse.urlencode(params)
+        req = urllib.request.Request(url, headers={"Authorization": f"Bearer {drive_token}"})
+        with urllib.request.urlopen(req, timeout=20) as res:
+            data = json.loads(res.read().decode("utf-8"))
+            all_files.extend(data.get("files", []))
+            page_token = data.get("nextPageToken")
+            if not page_token:
+                break
+
+    return all_files
 
 def get_uploaded_drive_file_ids() -> set:
     """Retrieve already uploaded Drive file IDs from Firebase RTDB"""
@@ -334,8 +347,8 @@ def run_pipeline(videos_per_channel: int = 1, target_channel: str = None):
 
     print(f"Targeting {len(target_channels)} channels for Drive uploads: {[c.get('channelName') for c in target_channels]}")
 
-    # 3. Fetch Drive video files
-    drive_files = get_drive_files(folder_id, drive_token, limit=60)
+    # 3. Fetch Drive video files (paginated across 5,000+ bundle)
+    drive_files = get_drive_files(folder_id, drive_token, limit=500)
     uploaded_ids = get_uploaded_drive_file_ids()
     available_files = [f for f in drive_files if f["id"] not in uploaded_ids]
 

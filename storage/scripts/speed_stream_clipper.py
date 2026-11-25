@@ -215,6 +215,8 @@ def clip_and_render_speed_moments(target_clips: int = 10) -> list:
         # 1. Download only the 35s clip directly in true 1080p HD
         dl_cmd = [
             "yt-dlp",
+            "--extractor-args", "youtube:player_client=android,ios,web",
+            "--no-check-certificates",
             "--download-sections", sec_range,
             "-f", "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
             "--force-overwrites",
@@ -225,16 +227,20 @@ def clip_and_render_speed_moments(target_clips: int = 10) -> list:
         try:
             res = subprocess.run(dl_cmd, capture_output=True, text=True, timeout=90)
             if not os.path.exists(raw_part) or os.path.getsize(raw_part) < 100000:
-                print(f"[{i+1}] Download retry with generic best format...")
+                print(f"[{i+1}] Primary download failed ({res.stderr[-200:].strip() if res.stderr else 'no file'}). Retrying with tv/ios client...")
                 dl_fallback = [
                     "yt-dlp",
+                    "--extractor-args", "youtube:player_client=ios,tv_embedded,android_vr",
+                    "--no-check-certificates",
                     "--download-sections", sec_range,
                     "-f", "best[ext=mp4]/best",
                     "--force-overwrites",
                     "-o", raw_part,
                     stream_url
                 ]
-                subprocess.run(dl_fallback, capture_output=True, text=True, timeout=90)
+                res2 = subprocess.run(dl_fallback, capture_output=True, text=True, timeout=90)
+                if not os.path.exists(raw_part):
+                    print(f"[{i+1}] Fallback error: {res2.stderr[-200:].strip() if res2.stderr else 'unknown'}")
         except Exception as dl_err:
             print(f"[Download Error Clip #{i+1}]: {dl_err}")
             continue
@@ -409,6 +415,8 @@ def upload_staged_clips_to_youtube():
         url = f"{FIREBASE_URL}/staged_speed_clips.json"
         with urllib.request.urlopen(url, timeout=8) as res:
             staged = json.loads(res.read().decode("utf-8") or "{}")
+            if not isinstance(staged, dict):
+                staged = {}
     except Exception as e:
         print(f"[Fetch Staged Error] {e}")
         return
